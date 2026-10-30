@@ -213,23 +213,16 @@ export function executeChatTurn(options: {
           });
 
           const toolDef = toolsMap.get(fnName);
-          let toolResult = "";
+          let rawResult: unknown;
           if (toolDef) {
-            toolResult = yield* toolDef.execute(parsedArgs, { userId }).pipe(
-              Effect.tap((res) =>
-                Effect.logInfo(
-                  `[ShoppingAssistant] Tool '${fnName}' completed (result length: ${res.length}): ${res.length > 500 ? res.slice(0, 500) + "..." : res}`,
-                ),
-              ),
+            rawResult = yield* toolDef.execute(parsedArgs, { userId }).pipe(
               Effect.catch((err: unknown) =>
                 Effect.logError(
                   `[ShoppingAssistant] Tool '${fnName}' failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
                 ).pipe(
-                  Effect.as(
-                    safeJsonStringify({
-                      error: `Tool execution failed: ${err}`,
-                    }),
-                  ),
+                  Effect.as({
+                    error: `Tool execution failed: ${err}`,
+                  }),
                 ),
               ),
             );
@@ -237,10 +230,19 @@ export function executeChatTurn(options: {
             yield* Effect.logWarning(
               `[ShoppingAssistant] Tool '${fnName}' not recognized in available tools map`,
             );
-            toolResult = safeJsonStringify({ error: `Tool ${fnName} not recognized.` });
+            rawResult = { error: `Tool ${fnName} not recognized.` };
           }
 
-          const toolSummary = summarizeToolResult(fnName, toolResult);
+          // Summarize directly from structured in-memory data without redundant JSON serialization/parsing
+          const toolSummary = summarizeToolResult(fnName, rawResult);
+          // Serialize once for LLM wire message and durable ToolCallRecord
+          const toolResult =
+            typeof rawResult === "string" ? rawResult : safeJsonStringify(rawResult);
+
+          yield* Effect.logInfo(
+            `[ShoppingAssistant] Tool '${fnName}' completed (result length: ${toolResult.length}): ${toolResult.length > 500 ? toolResult.slice(0, 500) + "..." : toolResult}`,
+          );
+
           chunks.push({
             type: "tool_result",
             tool: fnName,

@@ -1,3 +1,24 @@
+import type { Cart, CartUpdated, OrderConfirmation, SavedContactInfo } from "../cart/cart-schema.js";
+import type { Order } from "../order/order-schema.js";
+import type { ProductWithPrice } from "../product-search/product-search-agent.js";
+
+export type EmptyCartFallback = {
+  readonly userId: string;
+  readonly items: readonly [];
+  readonly total: number;
+  readonly message: string;
+  readonly currency?: string;
+};
+
+export type ToolErrorFallback = {
+  readonly error: string;
+};
+
+export type ToolSuccessResult = {
+  readonly success: boolean;
+  readonly error?: string;
+};
+
 export interface AssistantToolSpec<T = unknown> {
   readonly name: string;
   readonly description: string;
@@ -5,8 +26,12 @@ export interface AssistantToolSpec<T = unknown> {
   readonly summarizeResult?: (data: T) => string;
 }
 
-export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
-  {
+export function defineToolSpec<T>(spec: AssistantToolSpec<T>): AssistantToolSpec<T> {
+  return spec;
+}
+
+export const shoppingAssistantToolSpecs = [
+  defineToolSpec<readonly ProductWithPrice[]>({
     name: "search_products",
     description:
       "Search catalog for products matching a query (by keyword, brand, or tag) and return products with live pricing.",
@@ -24,12 +49,12 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       },
       required: ["query"],
     },
-    summarizeResult: (data: unknown) => {
-      const count = Array.isArray(data) ? data.length : 0;
+    summarizeResult: (data) => {
+      const count = data?.length ?? 0;
       return `Found ${count} ${count === 1 ? "product" : "products"}`;
     },
-  },
-  {
+  }),
+  defineToolSpec<ProductWithPrice | ToolErrorFallback>({
     name: "get_product_details",
     description:
       "Get complete product specifications, description, brand, and active pricing for a specific product ID.",
@@ -47,13 +72,13 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       },
       required: ["productId"],
     },
-    summarizeResult: (data: any) => {
-      const name = String(data?.productName ?? data?.name ?? "Product");
-      const price = data?.price ? ` ($${data.price})` : "";
-      return `${name}${price}`;
+    summarizeResult: (data) => {
+      if ("error" in data) return `Error: ${data.error}`;
+      const price = data.price?.price ? ` ($${data.price.price})` : "";
+      return `${data.name}${price}`;
     },
-  },
-  {
+  }),
+  defineToolSpec<Cart | EmptyCartFallback>({
     name: "get_cart",
     description:
       "Inspect the user's current shopping cart, including items, quantities, pricing, totals, and addresses.",
@@ -61,16 +86,15 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       type: "object",
       properties: {},
     },
-    summarizeResult: (data: any) => {
-      const items = Array.isArray(data?.items) ? data.items : [];
+    summarizeResult: (data) => {
+      const items = data.items ?? [];
       const count = items.length;
-      const total =
-        typeof data?.total === "number" ? data.total.toFixed(2) : String(data?.total ?? "0");
-      const currency = String(data?.currency ?? "USD");
+      const total = typeof data.total === "number" ? data.total.toFixed(2) : "0";
+      const currency = ("currency" in data && data.currency) || "USD";
       return `${count} ${count === 1 ? "item" : "items"} (${currency} ${total})`;
     },
-  },
-  {
+  }),
+  defineToolSpec<(ToolSuccessResult & Partial<CartUpdated>) | ToolSuccessResult>({
     name: "add_to_cart",
     description: "Add a product with a specified quantity into the user's cart.",
     parameters: {
@@ -88,13 +112,12 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       },
       required: ["productId", "quantity"],
     },
-    summarizeResult: (data: any) => {
-      const items = Array.isArray(data?.items) ? data.items : [];
-      const count = items.length;
-      return `Added to cart (${count} ${count === 1 ? "item" : "items"} total)`;
+    summarizeResult: (data) => {
+      if (data.error) return `Failed: ${data.error}`;
+      return "Added to cart";
     },
-  },
-  {
+  }),
+  defineToolSpec<ToolSuccessResult & Partial<CartUpdated>>({
     name: "update_cart_quantity",
     description: "Update the quantity of an existing item in the user's cart.",
     parameters: {
@@ -112,9 +135,9 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       },
       required: ["productId", "quantity"],
     },
-    summarizeResult: () => "Cart quantity updated",
-  },
-  {
+    summarizeResult: (data) => (data.error ? `Failed: ${data.error}` : "Cart quantity updated"),
+  }),
+  defineToolSpec<ToolSuccessResult & Partial<CartUpdated>>({
     name: "remove_from_cart",
     description: "Remove an item from the user's shopping cart.",
     parameters: {
@@ -127,9 +150,9 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       },
       required: ["productId"],
     },
-    summarizeResult: () => "Item removed from cart",
-  },
-  {
+    summarizeResult: (data) => (data.error ? `Failed: ${data.error}` : "Item removed from cart"),
+  }),
+  defineToolSpec<{ readonly success: boolean; readonly message: string }>({
     name: "clear_cart",
     description: "Remove all items from the user's current shopping cart.",
     parameters: {
@@ -137,8 +160,8 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       properties: {},
     },
     summarizeResult: () => "Cart cleared",
-  },
-  {
+  }),
+  defineToolSpec<SavedContactInfo | { readonly found: false; readonly message: string }>({
     name: "get_saved_contact_info",
     description:
       "Inspect the user's previous order history to retrieve saved shipping address, billing address, and email for 1-click checkout.",
@@ -146,13 +169,12 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       type: "object",
       properties: {},
     },
-    summarizeResult: (data: any) => {
-      return data?.found
-        ? `Found saved info (${String(data.email ?? "")})`
-        : "No saved contact info found";
+    summarizeResult: (data) => {
+      const hasEmail = "email" in data && data.email;
+      return hasEmail ? `Found saved info (${data.email})` : "No saved contact info found";
     },
-  },
-  {
+  }),
+  defineToolSpec<ToolSuccessResult & Partial<CartUpdated>>({
     name: "apply_saved_contact_info",
     description:
       "Apply the customer's saved shipping address, billing address, and email from their last order onto their active cart in one step.",
@@ -160,9 +182,10 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       type: "object",
       properties: {},
     },
-    summarizeResult: () => "Applied saved contact details",
-  },
-  {
+    summarizeResult: (data) =>
+      data.error ? `Failed: ${data.error}` : "Applied saved contact details",
+  }),
+  defineToolSpec<ToolSuccessResult & Partial<CartUpdated>>({
     name: "set_shipping_address",
     description: "Set or update the shipping address on the user's cart.",
     parameters: {
@@ -179,13 +202,9 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       },
       required: ["street", "city", "stateOrRegion", "country", "postalCode"],
     },
-    summarizeResult: (data: any) => {
-      const city = String(data?.city ?? "");
-      const country = String(data?.country ?? "");
-      return city || country ? `Shipping set (${city}, ${country})` : "Shipping address set";
-    },
-  },
-  {
+    summarizeResult: (data) => (data.error ? `Failed: ${data.error}` : "Shipping address set"),
+  }),
+  defineToolSpec<ToolSuccessResult & Partial<CartUpdated>>({
     name: "set_billing_address",
     description: "Set or update the billing address on the user's cart.",
     parameters: {
@@ -202,9 +221,9 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       },
       required: ["street", "city", "stateOrRegion", "country", "postalCode"],
     },
-    summarizeResult: () => "Billing address set",
-  },
-  {
+    summarizeResult: (data) => (data.error ? `Failed: ${data.error}` : "Billing address set"),
+  }),
+  defineToolSpec<ToolSuccessResult & Partial<CartUpdated>>({
     name: "set_email",
     description: "Set the contact email on the cart for order receipt and confirmation.",
     parameters: {
@@ -214,11 +233,9 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       },
       required: ["email"],
     },
-    summarizeResult: (data: any) => {
-      return `Email set to ${String(data?.email ?? "")}`;
-    },
-  },
-  {
+    summarizeResult: (data) => (data.error ? `Failed: ${data.error}` : "Email updated"),
+  }),
+  defineToolSpec<OrderConfirmation | (ToolSuccessResult & { readonly orderId?: string })>({
     name: "checkout_cart",
     description:
       "Execute checkout on the active cart. Pre-condition: cart must have items, email, and addresses set.",
@@ -226,12 +243,12 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       type: "object",
       properties: {},
     },
-    summarizeResult: (data: any) => {
-      const orderId = String(data?.orderId ?? "");
+    summarizeResult: (data) => {
+      const orderId = "orderId" in data ? data.orderId : undefined;
       return orderId ? `Order #${orderId.slice(0, 8)} placed` : "Checkout complete";
     },
-  },
-  {
+  }),
+  defineToolSpec<readonly Order[]>({
     name: "get_order_history",
     description:
       "Get a list of the user's past orders (most recent first) with line items, total, and status.",
@@ -245,12 +262,12 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
         },
       },
     },
-    summarizeResult: (data: any) => {
-      const count = Array.isArray(data) ? data.length : 0;
+    summarizeResult: (data) => {
+      const count = data?.length ?? 0;
       return `${count} past ${count === 1 ? "order" : "orders"}`;
     },
-  },
-  {
+  }),
+  defineToolSpec<Order | ToolErrorFallback>({
     name: "get_order_details",
     description: "Get full details of a specific order by its order ID.",
     parameters: {
@@ -263,15 +280,19 @@ export const shoppingAssistantToolSpecs: readonly AssistantToolSpec<any>[] = [
       },
       required: ["orderId"],
     },
-    summarizeResult: (data: any) => {
-      const status = String(data?.status ?? data?.orderStatus ?? "retrieved");
-      const id = String(data?.orderId ?? "").slice(0, 8);
+    summarizeResult: (data) => {
+      if ("error" in data) return `Error: ${data.error}`;
+      const status = data.orderStatus ?? "retrieved";
+      const id = (data.orderId ?? "").slice(0, 8);
       return id ? `Order #${id} (${status})` : "Order details retrieved";
     },
-  },
-];
+  }),
+] as const;
 
-export const toolSpecsMap = new Map<string, AssistantToolSpec<any>>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyAssistantToolSpec = AssistantToolSpec<any>;
+
+export const toolSpecsMap = new Map<string, AnyAssistantToolSpec>(
   shoppingAssistantToolSpecs.map((t) => [t.name, t]),
 );
 

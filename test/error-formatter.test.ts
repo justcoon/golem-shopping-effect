@@ -89,8 +89,8 @@ describe("LLM Error Formatting", () => {
     assert.strictEqual(cleaned, "Apple Watch Series 9 by Apple - $429.00 (Quantity: 1)");
   });
 
-  it("summarizes get_cart tool result instead of dumping raw JSON", () => {
-    const rawCartJson = JSON.stringify({
+  it("summarizes get_cart tool result with structured object or raw JSON", () => {
+    const cartObject = {
       userId: "u001",
       items: [
         {
@@ -102,15 +102,23 @@ describe("LLM Error Formatting", () => {
       ],
       total: 429,
       currency: "USD",
-    });
+    };
 
-    const summary = summarizeToolResult("get_cart", rawCartJson);
-    assert.strictEqual(summary, "1 item (USD 429.00)");
+    // Works with structured in-memory object directly
+    const directSummary = summarizeToolResult("get_cart", cartObject);
+    assert.strictEqual(directSummary, "1 item (USD 429.00)");
+
+    // Also works with serialized JSON string
+    const jsonSummary = summarizeToolResult("get_cart", JSON.stringify(cartObject));
+    assert.strictEqual(jsonSummary, "1 item (USD 429.00)");
   });
 
-  it("summarizes search_products tool result", () => {
-    const rawSearchJson = JSON.stringify([{ id: "p1" }, { id: "p2" }, { id: "p3" }]);
-    const summary = summarizeToolResult("search_products", rawSearchJson);
-    assert.strictEqual(summary, "Found 3 products");
+  it("summarizes search_products tool result with structured array or raw JSON", () => {
+    const products = [{ id: "p1" }, { id: "p2" }, { id: "p3" }];
+    assert.strictEqual(summarizeToolResult("search_products", products), "Found 3 products");
+    assert.strictEqual(
+      summarizeToolResult("search_products", JSON.stringify(products)),
+      "Found 3 products",
+    );
   });
 });
