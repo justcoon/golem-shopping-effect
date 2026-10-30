@@ -65,4 +65,3 @@ export const mergeSalePricingItems = (
 
   return Array.from(map.values());
 };
-

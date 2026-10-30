@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { defineAgent, Http, method } from "@golemcloud/effect-golem";
+import { Order } from "../order/order-schema.js";
 import {
   AddItemError,
   Cart,
@@ -7,6 +8,7 @@ import {
   CheckoutError,
   OrderConfirmation,
   RemoveItemError,
+  SavedContactInfo,
   UpdateAddressError,
   UpdateEmailError,
   UpdateItemQuantityError,
@@ -53,6 +55,7 @@ export const CartAgentDefinition = defineAgent({
         postalCode: Schema.String,
         name: Schema.optional(Schema.String),
         phoneNumber: Schema.optional(Schema.String),
+        email: Schema.optional(Schema.String),
       },
       success: CartUpdated,
       error: UpdateAddressError,
@@ -68,6 +71,7 @@ export const CartAgentDefinition = defineAgent({
         postalCode: Schema.String,
         name: Schema.optional(Schema.String),
         phoneNumber: Schema.optional(Schema.String),
+        email: Schema.optional(Schema.String),
       },
       success: CartUpdated,
       error: UpdateAddressError,
@@ -99,6 +103,28 @@ export const CartAgentDefinition = defineAgent({
       http: [Http.get("/")],
       description: "Get cart",
     }),
+    getSavedContactInfo: method({
+      input: {},
+      success: Schema.NullOr(SavedContactInfo),
+      readOnly: true,
+      http: [Http.get("/saved-contact")],
+      description: "Get saved contact info from last order",
+    }),
+    applySavedContactInfo: method({
+      input: {},
+      success: CartUpdated,
+      error: UpdateAddressError,
+      http: [Http.post("/use-saved-contact")],
+      description: "Apply saved contact info from last order to cart",
+    }),
+    getOrderHistory: method({
+      input: {
+        limit: Schema.optional(Schema.Number),
+      },
+      success: Schema.Array(Order),
+      readOnly: true,
+      http: [Http.get("/orders?limit={limit}")],
+      description: "Get user order history",
+    }),
   },
 });
-

@@ -12,4 +12,3 @@ export const Product = Schema.Struct({
 });
 
 export type Product = typeof Product.Type;
-

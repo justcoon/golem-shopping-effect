@@ -56,4 +56,3 @@ describe("ProductQueryMatcher", () => {
     assert.strictEqual(matcher.matches(sampleProduct), true);
   });
 });
-

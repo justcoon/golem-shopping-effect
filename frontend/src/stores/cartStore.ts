@@ -39,11 +39,7 @@ export const useCartStore = defineStore("cart", () => {
     }
   };
 
-  const addItem = async (
-    userId: string,
-    productId: string,
-    quantity: number = 1,
-  ) => {
+  const addItem = async (userId: string, productId: string, quantity: number = 1) => {
     try {
       await addToCartApi(userId, productId, quantity);
       await fetchCart(userId);
@@ -65,11 +61,7 @@ export const useCartStore = defineStore("cart", () => {
     }
   };
 
-  const updateItem = async (
-    userId: string,
-    productId: string,
-    quantity: number,
-  ) => {
+  const updateItem = async (userId: string, productId: string, quantity: number) => {
     try {
       if (quantity <= 0) {
         // If quantity is 0 or negative, remove the item from the cart

@@ -117,5 +117,13 @@ export const OrderConfirmation = Schema.Struct({
 });
 export type OrderConfirmation = typeof OrderConfirmation.Type;
 
+export const SavedContactInfo = Schema.Struct({
+  shippingAddress: Schema.NullOr(Address),
+  billingAddress: Schema.NullOr(Address),
+  email: Schema.NullOr(Schema.String),
+  sourceOrderId: Schema.NullOr(Schema.String),
+});
+export type SavedContactInfo = typeof SavedContactInfo.Type;
+
 export const getCartItemsTotalPrice = (items: readonly CartItem[]): number =>
   items.reduce((total, item) => total + item.price * item.quantity, 0);

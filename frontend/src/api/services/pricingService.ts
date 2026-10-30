@@ -20,9 +20,7 @@ export interface Pricing {
   updatedAt: DateTime;
 }
 
-export const getProductPricing = async (
-  productId: string,
-): Promise<Pricing> => {
+export const getProductPricing = async (productId: string): Promise<Pricing> => {
   try {
     const response = await apiClient.get(`/v1/pricing/${productId}`);
     return response;
@@ -32,9 +30,7 @@ export const getProductPricing = async (
   }
 };
 
-export const getBatchPricing = async (
-  productIds: string[],
-): Promise<Record<string, Pricing>> => {
+export const getBatchPricing = async (productIds: string[]): Promise<Record<string, Pricing>> => {
   try {
     // Make parallel requests for each product's pricing
     const pricingPromises = productIds.map(async (id) => {
@@ -51,16 +47,13 @@ export const getBatchPricing = async (
     const results = await Promise.all(pricingPromises);
 
     // Convert array of results to a record
-    return results.reduce<Record<string, Pricing>>(
-      (acc, { id, pricing, error }) => {
-        if (pricing) {
-          acc[id] = pricing;
-        }
-        // Skip products that had errors
-        return acc;
-      },
-      {},
-    );
+    return results.reduce<Record<string, Pricing>>((acc, { id, pricing, error }) => {
+      if (pricing) {
+        acc[id] = pricing;
+      }
+      // Skip products that had errors
+      return acc;
+    }, {});
   } catch (error) {
     console.error("Error in batch pricing operation:", error);
     throw error;
@@ -88,16 +81,9 @@ export const getCurrentSalePrices = (
     const matchesCurrency = filterOptions.currency
       ? sale.currency === filterOptions.currency
       : true;
-    const matchesRegion = filterOptions.region
-      ? sale.region === filterOptions.region
-      : true;
+    const matchesRegion = filterOptions.region ? sale.region === filterOptions.region : true;
 
-    return (
-      matchesCurrency &&
-      matchesRegion &&
-      (!start || now >= start) &&
-      (!end || now <= end)
-    );
+    return matchesCurrency && matchesRegion && (!start || now >= start) && (!end || now <= end);
   });
 };
 
@@ -112,12 +98,8 @@ export const getBestPrice = (
 
   const salePrices = getCurrentSalePrices(pricing, filterOptions);
   const listPrices = pricing.listPrices.filter((p) => {
-    const matchesCurrency = filterOptions.currency
-      ? p.currency === filterOptions.currency
-      : true;
-    const matchesRegion = filterOptions.region
-      ? p.region === filterOptions.region
-      : true;
+    const matchesCurrency = filterOptions.currency ? p.currency === filterOptions.currency : true;
+    const matchesRegion = filterOptions.region ? p.region === filterOptions.region : true;
     return matchesCurrency && matchesRegion;
   });
 

@@ -9,6 +9,7 @@ export const Address = Schema.Struct({
   postalCode: Schema.String,
   name: Schema.optional(Schema.String),
   phoneNumber: Schema.optional(Schema.String),
+  email: Schema.optional(Schema.String),
 });
 
 export type Address = typeof Address.Type;
@@ -28,3 +29,15 @@ export const getCurrentDatetime: Effect.Effect<Datetime.Datetime> = Effect.gen(f
   const now = yield* DateTime.now;
   return yield* Datetime.fromDateTime(now);
 }).pipe(Effect.orDie);
+
+/**
+ * Safely stringifies objects containing BigInt values (e.g. Datetime.Datetime seconds)
+ * by converting BigInt to string.
+ */
+export function safeJsonStringify(data: unknown, space?: string | number): string {
+  return JSON.stringify(
+    data,
+    (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+    space,
+  );
+}

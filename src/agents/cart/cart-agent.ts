@@ -1,6 +1,11 @@
 import { Effect, Ref } from "effect";
-import { CURRENCY, getCurrentDatetime, PRICING_REGION_DEFAULT } from "../../common/index.js";
-import { OrderAgent } from "../order/index.js";
+import {
+  arrayChunks,
+  CURRENCY,
+  getCurrentDatetime,
+  PRICING_REGION_DEFAULT,
+} from "../../common/index.js";
+import { Order, OrderAgent } from "../order/index.js";
 import { PricingAgent } from "../pricing/index.js";
 import { ProductAgent } from "../product/index.js";
 import { ShoppingAssistantDefinition } from "../shopping-assistant/shopping-assistant-definition.js";
@@ -171,6 +176,7 @@ export const CartAgent = CartAgentDefinition.implement({
               postalCode: address.postalCode,
               name: address.name,
               phoneNumber: address.phoneNumber,
+              email: address.email,
             },
             updatedAt: date,
           };
@@ -192,7 +198,9 @@ export const CartAgent = CartAgentDefinition.implement({
               postalCode: address.postalCode,
               name: address.name,
               phoneNumber: address.phoneNumber,
+              email: address.email,
             },
+            email: current.email ?? address.email,
             updatedAt: date,
           };
           yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
@@ -353,6 +361,102 @@ export const CartAgent = CartAgentDefinition.implement({
               cart: updatedCart,
             }));
             return updatedCart;
+          }),
+        ),
+
+      getSavedContactInfo: () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const { cart } = yield* Ref.get(state);
+            if (!cart || cart.previousOrderIds.length === 0) {
+              return null;
+            }
+            const lastOrderId = cart.previousOrderIds[cart.previousOrderIds.length - 1];
+            if (!lastOrderId) {
+              return null;
+            }
+            const orderClient = yield* OrderAgent.client
+              .get({ id: lastOrderId })
+              .pipe(Effect.orDie);
+            const order = yield* orderClient.get({}).pipe(Effect.orDie);
+            if (!order) {
+              return null;
+            }
+            return {
+              shippingAddress: order.shippingAddress ?? null,
+              billingAddress: order.billingAddress ?? null,
+              email: order.email ?? null,
+              sourceOrderId: lastOrderId,
+            };
+          }),
+        ),
+
+      applySavedContactInfo: () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const current = yield* getOrCreateCart;
+            if (current.previousOrderIds.length === 0) {
+              return yield* Effect.fail({
+                _tag: "address-not-valid" as const,
+                message: "No previous orders found to apply saved contact info",
+              });
+            }
+            const lastOrderId = current.previousOrderIds[current.previousOrderIds.length - 1];
+            if (!lastOrderId) {
+              return yield* Effect.fail({
+                _tag: "address-not-valid" as const,
+                message: "No valid previous order ID found",
+              });
+            }
+            const orderClient = yield* OrderAgent.client
+              .get({ id: lastOrderId })
+              .pipe(Effect.orDie);
+            const order = yield* orderClient.get({}).pipe(Effect.orDie);
+            if (!order) {
+              return yield* Effect.fail({
+                _tag: "address-not-valid" as const,
+                message: `Previous order ${lastOrderId} could not be retrieved`,
+              });
+            }
+            const date = yield* getCurrentDatetime;
+            const updated: Cart = {
+              ...current,
+              shippingAddress: order.shippingAddress ?? current.shippingAddress,
+              billingAddress: order.billingAddress ?? current.billingAddress,
+              email: order.email ?? current.email,
+              updatedAt: date,
+            };
+            yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
+            return { userId: current.userId };
+          }),
+        ),
+
+      getOrderHistory: ({ limit }) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const { cart } = yield* Ref.get(state);
+            if (!cart || cart.previousOrderIds.length === 0) {
+              return [];
+            }
+            const maxCount = limit !== undefined && limit > 0 ? limit : 10;
+            const orderIds = [...cart.previousOrderIds].reverse().slice(0, maxCount);
+            const idChunks = arrayChunks(orderIds, 5);
+            const result: Order[] = [];
+            for (const chunk of idChunks) {
+              const effects = chunk.map((orderId) =>
+                Effect.gen(function* () {
+                  const client = yield* OrderAgent.client.get({ id: orderId }).pipe(Effect.orDie);
+                  return yield* client.get({}).pipe(Effect.orDie);
+                }),
+              );
+              const orders = yield* Effect.all(effects, { concurrency: "unbounded" });
+              for (const order of orders) {
+                if (order) {
+                  result.push(order);
+                }
+              }
+            }
+            return result;
           }),
         ),
     };

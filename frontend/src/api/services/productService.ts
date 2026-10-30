@@ -31,10 +31,7 @@ const enhanceWithPricing = async (
       bestPrice: getBestPrice(pricing, options),
     };
   } catch (error) {
-    console.error(
-      `Error enhancing product ${product.productId} with pricing:`,
-      error,
-    );
+    console.error(`Error enhancing product ${product.productId} with pricing:`, error);
     return product; // Return product without pricing if there's an error
   }
 };
@@ -44,9 +41,7 @@ export const searchProducts = async (
   options?: PriceFilterOptions,
 ): Promise<Product[]> => {
   try {
-    const response = await apiClient.get(
-      `/v1/product/search?query=${encodeURIComponent(query)}`,
-    );
+    const response = await apiClient.get(`/v1/product/search?query=${encodeURIComponent(query)}`);
     const products: Product[] = response;
 
     // Get pricing for all products in batch
@@ -88,7 +83,6 @@ export const getProductById = async (
   }
 };
 
-
 // Helper to get a product with pricing (alias for backward compatibility)
 // Get product with pricing (with optional currency and region filters)
 export const getProductWithPricing = (
@@ -98,36 +92,36 @@ export const getProductWithPricing = (
 
 // Get multiple products by IDs with their pricing
 export const getProductsByIds = async (
-    productIds: string[],
-    options?: PriceFilterOptions,
+  productIds: string[],
+  options?: PriceFilterOptions,
 ): Promise<Product[]> => {
   try {
     // Get all products, handling individual failures
-    const productPromises = productIds.map(id =>
-        getProductById(id, false)
-            .then(product => ({ success: true, product }))
-            .catch(error => {
-              console.warn(`Failed to fetch product ${id}:`, error.message);
-              return { success: false, id, error };
-            })
+    const productPromises = productIds.map((id) =>
+      getProductById(id, false)
+        .then((product) => ({ success: true, product }))
+        .catch((error) => {
+          console.warn(`Failed to fetch product ${id}:`, error.message);
+          return { success: false, id, error };
+        }),
     );
 
     const results = await Promise.all(productPromises);
 
     // Filter out failed fetches and extract successful products
     const validProducts = results
-        .filter((result): result is { success: true; product: Product } => result.success)
-        .map(result => result.product);
+      .filter((result): result is { success: true; product: Product } => result.success)
+      .map((result) => result.product);
 
     if (validProducts.length === 0) {
-      console.warn('No products were successfully fetched');
+      console.warn("No products were successfully fetched");
       return [];
     }
 
     // Get pricing only for successfully fetched products
-    const validProductIds = validProducts.map(p => p.productId);
-    const pricingMap = await getBatchPricing(validProductIds).catch(error => {
-      console.warn('Failed to fetch batch pricing, continuing without pricing', error);
+    const validProductIds = validProducts.map((p) => p.productId);
+    const pricingMap = await getBatchPricing(validProductIds).catch((error) => {
+      console.warn("Failed to fetch batch pricing, continuing without pricing", error);
       return {}; // Return empty pricing map if batch pricing fails
     });
 
@@ -144,24 +138,18 @@ export const getProductsByIds = async (
 
     return Object.values(result);
   } catch (error) {
-    console.error('Unexpected error in getProductsByIds:', error);
+    console.error("Unexpected error in getProductsByIds:", error);
     throw error; // Re-throw for the caller to handle
   }
 };
 
-export const getProductBestPrice = (
-  product: Product,
-  options?: PriceFilterOptions,
-): string => {
+export const getProductBestPrice = (product: Product, options?: PriceFilterOptions): string => {
   if (!product.pricing) return "0.00";
   const price = getBestPrice(product.pricing, options);
   return price?.toFixed(2) || "0.00";
 };
 
-export const getProductOriginalPrice = (
-  product: Product,
-  options?: PriceFilterOptions,
-): string => {
+export const getProductOriginalPrice = (product: Product, options?: PriceFilterOptions): string => {
   if (!product.pricing) return getProductBestPrice(product, options);
 
   // Filter list prices by currency and region if provided
@@ -181,31 +169,19 @@ export const getProductOriginalPrice = (
   return getProductBestPrice(product, options);
 };
 
-export const isProductOnSale = (
-  product: Product,
-  options?: PriceFilterOptions,
-): boolean => {
+export const isProductOnSale = (product: Product, options?: PriceFilterOptions): boolean => {
   if (!product.pricing?.salePrices?.length) return false;
 
   // Filter sale prices by date, currency and region
   const now = new Date();
-  const salePrices = product.pricing.salePrices.filter(
-    (sale: SalePricingItem) => {
-      const start = sale.start ? dateTimeToDate(sale.start) : null;
-      const end = sale.end ? dateTimeToDate(sale.end) : null;
-      const matchesCurrency = options?.currency
-        ? sale.currency === options.currency
-        : true;
-      const matchesRegion = options?.region ? sale.region === options.region : true;
+  const salePrices = product.pricing.salePrices.filter((sale: SalePricingItem) => {
+    const start = sale.start ? dateTimeToDate(sale.start) : null;
+    const end = sale.end ? dateTimeToDate(sale.end) : null;
+    const matchesCurrency = options?.currency ? sale.currency === options.currency : true;
+    const matchesRegion = options?.region ? sale.region === options.region : true;
 
-      return (
-        matchesCurrency &&
-        matchesRegion &&
-        (!start || now >= start) &&
-        (!end || now <= end)
-      );
-    },
-  );
+    return matchesCurrency && matchesRegion && (!start || now >= start) && (!end || now <= end);
+  });
 
   if (salePrices.length === 0) return false;
 
@@ -221,9 +197,7 @@ export const isProductOnSale = (
   }
 
   const minListPrice =
-    listPrices.length > 0
-      ? Math.min(...listPrices.map((p) => p.price))
-      : Infinity;
+    listPrices.length > 0 ? Math.min(...listPrices.map((p) => p.price)) : Infinity;
 
   return bestSalePrice < minListPrice;
 };

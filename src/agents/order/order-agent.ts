@@ -71,6 +71,7 @@ export const OrderAgent = defineAgent({
         postalCode: Schema.String,
         name: Schema.optional(Schema.String),
         phoneNumber: Schema.optional(Schema.String),
+        email: Schema.optional(Schema.String),
       },
       success: OrderUpdated,
       error: UpdateAddressError,
@@ -86,6 +87,7 @@ export const OrderAgent = defineAgent({
         postalCode: Schema.String,
         name: Schema.optional(Schema.String),
         phoneNumber: Schema.optional(Schema.String),
+        email: Schema.optional(Schema.String),
       },
       success: OrderUpdated,
       error: UpdateAddressError,
@@ -344,6 +346,7 @@ export const OrderAgent = defineAgent({
               postalCode: address.postalCode,
               name: address.name,
               phoneNumber: address.phoneNumber,
+              email: address.email,
             },
             updatedAt: date,
           };
@@ -373,7 +376,9 @@ export const OrderAgent = defineAgent({
               postalCode: address.postalCode,
               name: address.name,
               phoneNumber: address.phoneNumber,
+              email: address.email,
             },
+            email: current.email ?? address.email,
             updatedAt: date,
           };
           yield* Ref.update(state, (curr) => ({ ...curr, order: updated }));

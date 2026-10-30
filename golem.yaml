@@ -33,8 +33,11 @@ components:
 secretDefaults:
   local:
     llm:
-      apiKey: '{{ OPENROUTER_KEY }}'
-      model: "openrouter/owl-alpha"
+#      apiKey: '{{ OPENROUTER_KEY }}'
+#      model: "openrouter/free"
+      apiKey: '{{ GEMINI_API_KEY }}'
+      model: "gemini-3.1-flash-lite"
+      apiUrl: "https://generativelanguage.googleapis.com/v1beta/openai"
 httpApi:
   deployments:
     local:
@@ -46,3 +49,11 @@ httpApi:
         ShoppingAssistantAgent: {}
         CartAgent: {}
         OrderAgent: {}
+#    - subdomain: golem-shopping-effect
+#      agents:
+#        PricingAgent: {}
+#        ProductAgent: {}
+#        ProductSearchAgent: {}
+#        ShoppingAssistantAgent: {}
+#        CartAgent: {}
+#        OrderAgent: {}

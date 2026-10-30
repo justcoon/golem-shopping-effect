@@ -72,9 +72,7 @@ export const useOrderStore = defineStore("orders", () => {
       }
 
       // Also update in the orders list if it exists there
-      const orderIndex = orders.value.findIndex(
-        (o) => o.orderId === orderId,
-      );
+      const orderIndex = orders.value.findIndex((o) => o.orderId === orderId);
       if (orderIndex !== -1) {
         orders.value[orderIndex].email = email;
       }
@@ -98,9 +96,7 @@ export const useOrderStore = defineStore("orders", () => {
       }
 
       // Also update in the orders list if it exists there
-      const orderIndex = orders.value.findIndex(
-        (o) => o.orderId === orderId,
-      );
+      const orderIndex = orders.value.findIndex((o) => o.orderId === orderId);
       if (orderIndex !== -1) {
         orders.value[orderIndex].billingAddress = address;
       }
@@ -116,10 +112,7 @@ export const useOrderStore = defineStore("orders", () => {
     error.value = null;
 
     try {
-      const updatedOrder = await updateOrderShippingAddressApi(
-        orderId,
-        address,
-      );
+      const updatedOrder = await updateOrderShippingAddressApi(orderId, address);
 
       // Update local state
       if (currentOrder.value && currentOrder.value.orderId === orderId) {
@@ -127,9 +120,7 @@ export const useOrderStore = defineStore("orders", () => {
       }
 
       // Also update in the orders list if it exists there
-      const orderIndex = orders.value.findIndex(
-        (o) => o.orderId === orderId,
-      );
+      const orderIndex = orders.value.findIndex((o) => o.orderId === orderId);
       if (orderIndex !== -1) {
         orders.value[orderIndex].shippingAddress = address;
       }
@@ -148,9 +139,7 @@ export const useOrderStore = defineStore("orders", () => {
       }
 
       // Update status in the orders list if it exists there
-      const orderIndex = orders.value.findIndex(
-        (o) => o.orderId === orderId,
-      );
+      const orderIndex = orders.value.findIndex((o) => o.orderId === orderId);
       if (orderIndex !== -1) {
         orders.value[orderIndex].orderStatus = "shipped";
       }
@@ -169,9 +158,7 @@ export const useOrderStore = defineStore("orders", () => {
       }
 
       // Update status in the orders list if it exists there
-      const orderIndex = orders.value.findIndex(
-        (o) => o.orderId === orderId,
-      );
+      const orderIndex = orders.value.findIndex((o) => o.orderId === orderId);
       if (orderIndex !== -1) {
         orders.value[orderIndex].orderStatus = "cancelled";
       }

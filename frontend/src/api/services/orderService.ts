@@ -34,10 +34,7 @@ export const getOrder = async (orderId: string): Promise<Order> => {
   }
 };
 
-export const getUserOrders = async (
-  userId: string,
-  orderIds: string[] = [],
-): Promise<Order[]> => {
+export const getUserOrders = async (userId: string, orderIds: string[] = []): Promise<Order[]> => {
   try {
     if (!orderIds || orderIds.length === 0) {
       return [];
@@ -61,10 +58,7 @@ export const getUserOrders = async (
   }
 };
 
-export const updateOrderEmail = async (
-  orderId: string,
-  email: string,
-): Promise<void> => {
+export const updateOrderEmail = async (orderId: string, email: string): Promise<void> => {
   try {
     await apiClient.put(`/v1/order/${orderId}/email`, { email });
   } catch (error) {
@@ -78,16 +72,10 @@ export const updateOrderBillingAddress = async (
   address: Address,
 ): Promise<Order> => {
   try {
-    const response = await apiClient.put(
-      `/v1/order/${orderId}/billingAddress`,
-      address,
-    );
+    const response = await apiClient.put(`/v1/order/${orderId}/billingAddress`, address);
     return response.data;
   } catch (error) {
-    console.error(
-      `Error updating billing address for order ${orderId}:`,
-      error,
-    );
+    console.error(`Error updating billing address for order ${orderId}:`, error);
     throw error;
   }
 };
@@ -97,16 +85,10 @@ export const updateOrderShippingAddress = async (
   address: Address,
 ): Promise<Order> => {
   try {
-    const response = await apiClient.put(
-      `/v1/order/${orderId}/shippingAddress`,
-      address,
-    );
+    const response = await apiClient.put(`/v1/order/${orderId}/shippingAddress`, address);
     return response.data;
   } catch (error) {
-    console.error(
-      `Error updating shipping address for order ${orderId}:`,
-      error,
-    );
+    console.error(`Error updating shipping address for order ${orderId}:`, error);
     throw error;
   }
 };

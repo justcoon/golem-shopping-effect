@@ -24,7 +24,5 @@ export function dateToDateTime(date: Date): DateTime {
  * Converts a DateTime to a JavaScript Date object
  */
 export function dateTimeToDate(dateTime: DateTime): Date {
-  return new Date(
-    dateTime.seconds * 1000 + Math.floor(dateTime.nanoseconds / 1_000_000),
-  );
+  return new Date(dateTime.seconds * 1000 + Math.floor(dateTime.nanoseconds / 1_000_000));
 }
