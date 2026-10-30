@@ -1,9 +1,21 @@
 import { Duration, Effect, Stream } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import { Retry } from "@golemcloud/effect-golem";
-import { safeJsonStringify } from "../../common/index.js";
-import { ChatChunk, ChatMessage, ToolCallRecord } from "./shopping-assistant-schema.js";
-import { toolsMap, toolsOpenAiFormat } from "./shopping-assistant-tools.js";
+import {
+  extractLlmErrorMessage,
+  fixMojibake,
+  formatLlmUserErrorMessage,
+  safeJsonStringify,
+} from "../../common/index.js";
+import {
+  ChatChunk,
+  ChatMessage,
+  ChatMessageType,
+  ToolCallRecord,
+} from "./shopping-assistant-schema.js";
+import { summarizeToolResult, toolsMap, toolsOpenAiFormat } from "./shopping-assistant-tools.js";
+
+export { extractLlmErrorMessage, fixMojibake, formatLlmUserErrorMessage, summarizeToolResult };
 
 const SYSTEM_PROMPT = `You are a helpful, courteous, and efficient personal Shopping Assistant for our e-commerce store.
 You have access to tools to help the user:
@@ -25,7 +37,8 @@ Guidelines:
    - If found, confirm with the user or apply via apply_saved_contact_info.
    - If it is their first order (no saved info found), ask for their shipping address and email, then use set_shipping_address, set_billing_address, and set_email before calling checkout_cart.
    - After checkout, celebrate the success and provide their order ID.
-4. When showing order history, summarize recent orders clearly (status, total, date).`;
+4. When showing order history, summarize recent orders clearly (status, total, date).
+5. Output plain ASCII punctuation: use standard hyphens ('-') instead of special en-dashes ('–') or em-dashes ('—'), and standard quotes.`;
 
 const llmRetryPolicy = Retry.NamedPolicy.named(
   "shopping-assistant-chat-retry",
@@ -87,8 +100,10 @@ export function executeChatTurn(options: {
         toolCallsUsed: [],
         chunks: [
           { type: "text_delta" as const, content: msg, tool: "" },
+          { type: "error" as const, content: msg, tool: "" },
           { type: "done" as const, content: "", tool: "" },
         ],
+        type: "error" as ChatMessageType,
       };
     }
 
@@ -111,6 +126,7 @@ export function executeChatTurn(options: {
     const accumulatedToolCalls: ToolCallRecord[] = [];
     const chunks: ChatChunk[] = [];
     let finalReply = "";
+    let isError = false;
 
     const MAX_STEPS = 5;
     for (let step = 0; step < MAX_STEPS; step++) {
@@ -136,19 +152,10 @@ export function executeChatTurn(options: {
               return yield* response.json;
             }
             const bodyText = yield* response.text.pipe(Effect.catch(() => Effect.succeed("")));
-            let msg = `HTTP ${response.status}`;
-            try {
-              const parsed = JSON.parse(bodyText) as { error?: { message?: string } };
-              if (parsed?.error?.message) {
-                msg += `: ${parsed.error.message}`;
-              } else if (bodyText) {
-                msg += `: ${bodyText}`;
-              }
-            } catch {
-              if (bodyText) msg += `: ${bodyText}`;
-            }
-            lastErrorMessage = msg;
-            return yield* Effect.fail(new Error(msg));
+            const detail = extractLlmErrorMessage(response.status, bodyText);
+            const formatted = `AI service error (${response.status}): ${detail}`;
+            lastErrorMessage = formatted;
+            return yield* Effect.fail(new Error(`HTTP ${response.status}: ${detail}`));
           }),
         ),
         Effect.provide(FetchHttpClient.layer),
@@ -164,9 +171,11 @@ export function executeChatTurn(options: {
 
       const parsedResponse = responseJson as OpenAiChatCompletionResponse | null;
       if (!parsedResponse?.choices || parsedResponse.choices.length === 0) {
-        finalReply = lastErrorMessage
-          ? `AI service error: ${lastErrorMessage}`
-          : "I encountered an error communicating with the AI service. Please try again in a moment.";
+        isError = true;
+        finalReply =
+          lastErrorMessage ||
+          "AI service error: Unable to communicate with the AI model. Please try again in a moment.";
+        chunks.push({ type: "text_delta", content: finalReply, tool: "" });
         chunks.push({ type: "error", content: finalReply, tool: "" });
         break;
       }
@@ -231,10 +240,11 @@ export function executeChatTurn(options: {
             toolResult = safeJsonStringify({ error: `Tool ${fnName} not recognized.` });
           }
 
+          const toolSummary = summarizeToolResult(fnName, toolResult);
           chunks.push({
             type: "tool_result",
             tool: fnName,
-            content: toolResult,
+            content: toolSummary,
           });
 
           const record: ToolCallRecord = {
@@ -256,7 +266,7 @@ export function executeChatTurn(options: {
       }
 
       // Final assistant response with no tool calls
-      finalReply = assistantMessage?.content ?? "";
+      finalReply = fixMojibake(assistantMessage?.content ?? "");
       chunks.push({ type: "text_delta", content: finalReply, tool: "" });
       break;
     }
@@ -267,6 +277,7 @@ export function executeChatTurn(options: {
       reply: finalReply,
       toolCallsUsed: accumulatedToolCalls,
       chunks,
+      type: (isError ? "error" : "ok") as ChatMessageType,
     };
   });
 }

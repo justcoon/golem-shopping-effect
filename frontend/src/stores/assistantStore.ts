@@ -85,6 +85,7 @@ export const useAssistantStore = defineStore("assistant", () => {
       role: "user",
       content,
       timestamp: new Date().toISOString(),
+      type: "ok",
     };
     messages.value.push(userMessage);
 
@@ -94,6 +95,7 @@ export const useAssistantStore = defineStore("assistant", () => {
     streamingText.value = "";
 
     const usedToolNames: string[] = [];
+    let streamHadError = false;
 
     if (stream) {
       isStreaming.value = true;
@@ -118,6 +120,7 @@ export const useAssistantStore = defineStore("assistant", () => {
           } else if (chunk.type === "text_delta") {
             streamingText.value += chunk.content;
           } else if (chunk.type === "error") {
+            streamHadError = true;
             error.value = new Error(chunk.content);
           }
         });
@@ -127,6 +130,7 @@ export const useAssistantStore = defineStore("assistant", () => {
             role: "assistant",
             content: streamingText.value,
             timestamp: new Date().toISOString(),
+            type: streamHadError ? "error" : "ok",
           };
           messages.value.push(assistantMessage);
         } else {
@@ -145,6 +149,7 @@ export const useAssistantStore = defineStore("assistant", () => {
             content: res.reply,
             toolCalls: res.toolCallsUsed,
             timestamp: new Date().toISOString(),
+            type: res.type ?? "ok",
           });
           refreshCartIfCartToolsUsed(res.toolCallsUsed.map((tc: ToolCallRecord) => tc.toolName));
         } catch (syncErr) {
@@ -163,6 +168,7 @@ export const useAssistantStore = defineStore("assistant", () => {
           content: res.reply,
           toolCalls: res.toolCallsUsed,
           timestamp: new Date().toISOString(),
+          type: res.type ?? "ok",
         });
         refreshCartIfCartToolsUsed(res.toolCallsUsed.map((tc: ToolCallRecord) => tc.toolName));
       } catch (err) {

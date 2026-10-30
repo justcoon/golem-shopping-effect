@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch } from "vue";
+import { ref, onMounted, nextTick, watch, computed } from "vue";
 import { useAssistantStore } from "@/stores/assistantStore";
 import { useAuthStore } from "@/stores/authStore";
 
@@ -7,8 +7,80 @@ const assistantStore = useAssistantStore();
 const authStore = useAuthStore();
 
 const inputMessage = ref("");
+const inputRef = ref<HTMLInputElement | null>(null);
 const chatContainer = ref<HTMLElement | null>(null);
 const useStreaming = ref(true);
+
+// Message history state
+const showHistoryDropdown = ref(false);
+const historyIndex = ref(-1);
+const currentDraft = ref("");
+
+// Extract unique user messages in reverse chronological order (most recent first)
+const userMessageHistory = computed(() => {
+  const list: string[] = [];
+  for (let i = assistantStore.messages.length - 1; i >= 0; i--) {
+    const msg = assistantStore.messages[i];
+    if (msg?.role === "user" && msg.content && msg.content.trim()) {
+      const text = msg.content.trim();
+      if (!list.includes(text)) {
+        list.push(text);
+      }
+    }
+  }
+  return list;
+});
+
+const reuseMessage = (content: string, autoSend = false) => {
+  if (autoSend) {
+    showHistoryDropdown.value = false;
+    historyIndex.value = -1;
+    currentDraft.value = "";
+    handleSend(content);
+  } else {
+    inputMessage.value = content;
+    showHistoryDropdown.value = false;
+    historyIndex.value = -1;
+    nextTick(() => {
+      inputRef.value?.focus();
+    });
+  }
+};
+
+const handleKeyDown = (e: KeyboardEvent) => {
+  if (e.key === "ArrowUp") {
+    // Only intercept ArrowUp if history is available and input cursor is at beginning or already cycling
+    const input = inputRef.value;
+    const isAtStart = !input || input.selectionStart === 0;
+    if (userMessageHistory.value.length > 0 && isAtStart) {
+      if (historyIndex.value === -1) {
+        currentDraft.value = inputMessage.value;
+      }
+      if (historyIndex.value < userMessageHistory.value.length - 1) {
+        historyIndex.value++;
+        inputMessage.value = userMessageHistory.value[historyIndex.value];
+        e.preventDefault();
+      }
+    }
+  } else if (e.key === "ArrowDown") {
+    if (historyIndex.value > 0) {
+      historyIndex.value--;
+      inputMessage.value = userMessageHistory.value[historyIndex.value];
+      e.preventDefault();
+    } else if (historyIndex.value === 0) {
+      historyIndex.value = -1;
+      inputMessage.value = currentDraft.value;
+      e.preventDefault();
+    }
+  } else if (e.key === "Escape") {
+    if (showHistoryDropdown.value) {
+      showHistoryDropdown.value = false;
+    } else if (historyIndex.value !== -1) {
+      inputMessage.value = currentDraft.value;
+      historyIndex.value = -1;
+    }
+  }
+};
 
 const samplePrompts = [
   "Search for running shoes and show prices",
@@ -52,6 +124,9 @@ const handleSend = async (textToSend?: string) => {
   if (!message || assistantStore.isLoading) return;
 
   inputMessage.value = "";
+  historyIndex.value = -1;
+  currentDraft.value = "";
+  showHistoryDropdown.value = false;
   await assistantStore.sendMessage(message, useStreaming.value);
   await scrollToBottom();
 };
@@ -60,6 +135,27 @@ const handleClear = async () => {
   if (confirm("Are you sure you want to clear your conversation history?")) {
     await assistantStore.clearMessages();
   }
+};
+
+const getLastUserQuery = (): string => {
+  for (let i = assistantStore.messages.length - 1; i >= 0; i--) {
+    const msg = assistantStore.messages[i];
+    if (msg?.role === "user" && msg.content?.trim()) {
+      return msg.content.trim();
+    }
+  }
+  return "";
+};
+
+const handleRetry = async () => {
+  const query = getLastUserQuery();
+  if (query) {
+    await handleSend(query);
+  }
+};
+
+const formatBannerError = (msg?: string): string => {
+  return msg || "An error occurred with the AI assistant.";
 };
 
 const formatTime = (isoString: string) => {
@@ -84,8 +180,26 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#039;");
 }
 
+function cleanMojibake(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/â€“/g, "-")
+    .replace(/â€”/g, " - ")
+    .replace(/â€˜/g, "'")
+    .replace(/â€™/g, "'")
+    .replace(/â€œ/g, '"')
+    .replace(/â€\x9d/g, '"')
+    .replace(/â€/g, '"')
+    .replace(/â€¢/g, "•")
+    .replace(/â€¦/g, "...")
+    .replace(/Â /g, " ")
+    .replace(/Â\$/g, "$");
+}
+
 function renderMarkdown(md: string): string {
   if (!md) return "";
+
+  md = cleanMojibake(md);
 
   // 1. Extract code blocks
   const codeBlocks: string[] = [];
@@ -124,18 +238,39 @@ function renderMarkdown(md: string): string {
   text = text.replace(/(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)/g, "<em>$1</em>");
   text = text.replace(/(?<!_)_(?!_)(.*?)(?<!_)_(?!_)/g, "<em>$1</em>");
 
-  // 7. Unordered and Ordered Lists
+  // 7. Unordered, Ordered Lists, and Blockquotes
   const lines = text.split("\n");
   const processed: string[] = [];
   let inUl = false;
   let inOl = false;
+  let inBq = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const ulMatch = line.match(/^(\s*)[*+-]\s+(.*)$/);
     const olMatch = line.match(/^(\s*)\d+\.\s+(.*)$/);
+    const bqMatch = line.match(/^>\s?(.*)$/);
 
-    if (ulMatch) {
+    if (bqMatch) {
+      if (inUl) {
+        processed.push("</ul>");
+        inUl = false;
+      }
+      if (inOl) {
+        processed.push("</ol>");
+        inOl = false;
+      }
+      if (!inBq) {
+        processed.push("");
+        processed.push('<blockquote class="md-blockquote">');
+        inBq = true;
+      }
+      processed.push(`  <p class="md-bq-p">${bqMatch[1]}</p>`);
+    } else if (ulMatch) {
+      if (inBq) {
+        processed.push("</blockquote>");
+        inBq = false;
+      }
       if (!inUl) {
         if (inOl) {
           processed.push("</ol>");
@@ -147,6 +282,10 @@ function renderMarkdown(md: string): string {
       }
       processed.push(`  <li class="md-li">${ulMatch[2]}</li>`);
     } else if (olMatch) {
+      if (inBq) {
+        processed.push("</blockquote>");
+        inBq = false;
+      }
       if (!inOl) {
         if (inUl) {
           processed.push("</ul>");
@@ -158,6 +297,11 @@ function renderMarkdown(md: string): string {
       }
       processed.push(`  <li class="md-li">${olMatch[2]}</li>`);
     } else {
+      if (inBq) {
+        processed.push("</blockquote>");
+        processed.push("");
+        inBq = false;
+      }
       if (inUl) {
         processed.push("</ul>");
         processed.push("");
@@ -171,6 +315,7 @@ function renderMarkdown(md: string): string {
       processed.push(line);
     }
   }
+  if (inBq) processed.push("</blockquote>");
   if (inUl) processed.push("</ul>");
   if (inOl) processed.push("</ol>");
 
@@ -185,6 +330,7 @@ function renderMarkdown(md: string): string {
       if (
         block.startsWith("<ul") ||
         block.startsWith("<ol") ||
+        block.startsWith("<blockquote") ||
         block.startsWith("<h1") ||
         block.startsWith("<h2") ||
         block.startsWith("<h3") ||
@@ -253,15 +399,43 @@ function renderMarkdown(md: string): string {
       <div
         v-for="(msg, idx) in assistantStore.messages"
         :key="idx"
-        :class="['chat-bubble', msg.role === 'user' ? 'user-bubble' : 'assistant-bubble']"
+        :class="[
+          'chat-bubble',
+          msg.role === 'user' ? 'user-bubble' : 'assistant-bubble',
+          msg.type === 'error' ? 'error-bubble' : '',
+        ]"
       >
         <div class="bubble-header">
           <span class="bubble-role">
-            {{ msg.role === "user" ? "You" : "🤖 Shopping Assistant" }}
+            <template v-if="msg.role === 'user'">You</template>
+            <template v-else-if="msg.type === 'error'">⚠️ Error</template>
+            <template v-else>🤖 Shopping Assistant</template>
           </span>
-          <span v-if="msg.timestamp" class="bubble-time">
-            {{ formatTime(msg.timestamp) }}
-          </span>
+          <div class="bubble-header-right">
+            <span v-if="msg.timestamp" class="bubble-time">
+              {{ formatTime(msg.timestamp) }}
+            </span>
+            <button
+              v-if="msg.role === 'user'"
+              type="button"
+              class="btn-icon-reuse"
+              title="Reuse this message in input (or Shift+Click to send immediately)"
+              @click.exact="reuseMessage(msg.content, false)"
+              @click.shift.exact="reuseMessage(msg.content, true)"
+            >
+              ↺ Reuse
+            </button>
+            <button
+              v-if="msg.type === 'error'"
+              type="button"
+              class="btn-icon-retry"
+              :disabled="assistantStore.isLoading"
+              title="Retry your last request"
+              @click="handleRetry"
+            >
+              🔄 Retry
+            </button>
+          </div>
         </div>
 
         <!-- Tool Calls Display -->
@@ -336,37 +510,135 @@ function renderMarkdown(md: string): string {
       </div>
     </div>
 
-    <!-- Error Alert -->
+    <!-- Error Alert Banner -->
     <div v-if="assistantStore.error" class="error-banner glass-card">
-      <span class="error-icon">⚠️</span>
-      <span>{{ assistantStore.error.message || "An error occurred with the assistant." }}</span>
-    </div>
-
-    <!-- Chat Input Form -->
-    <form class="chat-input-bar glass-card" @submit.prevent="handleSend()">
-      <input
-        v-model="inputMessage"
-        type="text"
-        placeholder="Type a request (e.g. 'Add running shoes to cart' or 'Checkout')..."
-        :disabled="assistantStore.isLoading"
-        class="chat-text-input"
-        autofocus
-      />
-      <div class="input-controls">
-        <label class="stream-toggle">
-          <input type="checkbox" v-model="useStreaming" />
-          <span class="stream-label">Stream</span>
-        </label>
+      <div class="error-banner-left">
+        <span class="error-icon">⚠️</span>
+        <span class="error-text">{{ formatBannerError(assistantStore.error.message) }}</span>
+      </div>
+      <div class="error-banner-actions">
         <button
-          type="submit"
-          class="btn btn-primary send-btn"
-          :disabled="!inputMessage.trim() || assistantStore.isLoading"
+          type="button"
+          class="btn-banner-retry"
+          :disabled="assistantStore.isLoading"
+          title="Retry request"
+          @click="handleRetry"
         >
-          <span v-if="assistantStore.isLoading" class="spinner"></span>
-          <span v-else>Send →</span>
+          🔄 Retry
+        </button>
+        <button
+          type="button"
+          class="btn-close"
+          title="Dismiss"
+          @click="assistantStore.error = null"
+        >
+          ✕
         </button>
       </div>
-    </form>
+    </div>
+
+    <!-- History & Input Area -->
+    <div class="chat-input-area">
+      <!-- Quick History Bar (shown if user has past messages) -->
+      <div v-if="userMessageHistory.length > 0" class="history-bar">
+        <div class="history-bar-left">
+          <button
+            type="button"
+            class="history-toggle-btn"
+            :class="{ active: showHistoryDropdown }"
+            title="Browse full prompt history"
+            @click="showHistoryDropdown = !showHistoryDropdown"
+          >
+            <span>🕒 History</span>
+            <span class="badge-count">{{ userMessageHistory.length }}</span>
+          </button>
+
+          <div class="recent-chips-scroll">
+            <span class="recent-label">Recent:</span>
+            <button
+              v-for="(historyItem, hIdx) in userMessageHistory.slice(0, 4)"
+              :key="hIdx"
+              type="button"
+              class="recent-chip"
+              :title="'Click to edit, Shift+Click to resend:\n' + historyItem"
+              @click.exact="reuseMessage(historyItem, false)"
+              @click.shift.exact="reuseMessage(historyItem, true)"
+            >
+              {{ historyItem.length > 28 ? historyItem.slice(0, 28) + "..." : historyItem }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="historyIndex !== -1" class="history-nav-indicator">
+          <span>{{ historyIndex + 1 }} / {{ userMessageHistory.length }} (↑/↓ to cycle)</span>
+        </div>
+      </div>
+
+      <!-- History Dropdown Popover -->
+      <div
+        v-if="showHistoryDropdown && userMessageHistory.length > 0"
+        class="history-dropdown glass-card"
+      >
+        <div class="history-dropdown-header">
+          <span>Past Messages ({{ userMessageHistory.length }})</span>
+          <button type="button" class="btn-close" @click="showHistoryDropdown = false">✕</button>
+        </div>
+        <div class="history-dropdown-list">
+          <div v-for="(item, i) in userMessageHistory" :key="i" class="history-item">
+            <span class="history-text" :title="item" @click="reuseMessage(item, false)">
+              {{ item }}
+            </span>
+            <div class="history-actions">
+              <button
+                type="button"
+                class="btn-reuse-action"
+                title="Edit message in input"
+                @click="reuseMessage(item, false)"
+              >
+                ✏️ Edit
+              </button>
+              <button
+                type="button"
+                class="btn-resend-action"
+                title="Send immediately"
+                :disabled="assistantStore.isLoading"
+                @click="reuseMessage(item, true)"
+              >
+                🚀 Resend
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat Input Form -->
+      <form class="chat-input-bar glass-card" @submit.prevent="handleSend()">
+        <input
+          ref="inputRef"
+          v-model="inputMessage"
+          type="text"
+          placeholder="Type a request (↑/↓ for history)..."
+          :disabled="assistantStore.isLoading"
+          class="chat-text-input"
+          autofocus
+          @keydown="handleKeyDown"
+        />
+        <div class="input-controls">
+          <label class="stream-toggle">
+            <input type="checkbox" v-model="useStreaming" />
+            <span class="stream-label">Stream</span>
+          </label>
+          <button
+            type="submit"
+            class="btn btn-primary send-btn"
+            :disabled="!inputMessage.trim() || assistantStore.isLoading"
+          >
+            <span v-if="assistantStore.isLoading" class="spinner"></span>
+            <span v-else>Send →</span>
+          </button>
+        </div>
+      </form>
+    </div>
   </div>
 </template>
 
@@ -502,10 +774,66 @@ function renderMarkdown(md: string): string {
 .bubble-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 0.75rem;
   font-size: 0.75rem;
   margin-bottom: 0.4rem;
-  opacity: 0.75;
+  opacity: 0.85;
+}
+
+.bubble-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-icon-reuse {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-icon-reuse:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-icon-retry {
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  padding: 0.12rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-icon-retry:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.35);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.btn-icon-retry:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.assistant-bubble.error-bubble {
+  background: rgba(28, 19, 14, 0.92);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  box-shadow: 0 4px 18px rgba(245, 158, 11, 0.12);
+}
+
+.assistant-bubble.error-bubble .bubble-role {
+  color: #fbbf24;
 }
 
 .bubble-role {
@@ -610,6 +938,21 @@ function renderMarkdown(md: string): string {
 
 .markdown-body :deep(.md-link:hover) {
   color: #7dd3fc;
+}
+
+.markdown-body :deep(.md-blockquote) {
+  margin: 0.6rem 0 0.8rem 0;
+  padding: 0.5rem 0.85rem;
+  border-left: 3px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+  border-radius: 0 6px 6px 0;
+  font-size: 0.88rem;
+  color: #fef3c7;
+}
+
+.markdown-body :deep(.md-bq-p) {
+  margin: 0;
+  line-height: 1.55;
 }
 
 /* Tool Calls */
@@ -737,20 +1080,286 @@ function renderMarkdown(md: string): string {
   background: rgba(239, 68, 68, 0.15);
   color: #fca5a5;
   border: 1px solid rgba(239, 68, 68, 0.3);
-  padding: 0.75rem 1rem;
+  padding: 0.65rem 1rem;
   border-radius: 10px;
   font-size: 0.85rem;
   margin-top: 0.75rem;
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.error-banner-left {
+  display: flex;
   align-items: center;
   gap: 0.6rem;
+  flex: 1;
+}
+
+.error-text {
+  flex: 1;
+}
+
+.error-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.btn-banner-retry {
+  background: rgba(239, 68, 68, 0.25);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #ffffff;
+  padding: 0.2rem 0.6rem;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-banner-retry:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.45);
+}
+
+.btn-banner-retry:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Chat Input Area & Message History */
+.chat-input-area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.history-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.25rem;
+}
+
+.history-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: hidden;
+}
+
+.history-toggle-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.history-toggle-btn:hover,
+.history-toggle-btn.active {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c084fc;
+  border-color: #c084fc;
+}
+
+.badge-count {
+  background: rgba(139, 92, 246, 0.3);
+  color: #c084fc;
+  font-weight: 600;
+  font-size: 0.7rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 9999px;
+}
+
+.recent-chips-scroll {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.recent-chips-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.recent-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.recent-chip {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-chip:hover {
+  background: rgba(139, 92, 246, 0.15);
+  color: #c084fc;
+  border-color: rgba(192, 132, 252, 0.4);
+}
+
+.history-nav-indicator {
+  font-size: 0.72rem;
+  color: #c084fc;
+  background: rgba(139, 92, 246, 0.12);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* History Dropdown Popover */
+.history-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.history-dropdown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.btn-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+
+.btn-close:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.history-dropdown-list {
+  overflow-y: auto;
+  padding: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  transition: background 0.15s ease;
+}
+
+.history-item:hover {
+  background: rgba(139, 92, 246, 0.1);
+}
+
+.history-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.history-text:hover {
+  color: #c084fc;
+}
+
+.history-actions {
+  display: flex;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.btn-reuse-action {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  border-radius: 4px;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-reuse-action:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.btn-resend-action {
+  background: rgba(139, 92, 246, 0.2);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: #c084fc;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-resend-action:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.35);
+  color: #ffffff;
+}
+
+.btn-resend-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Chat Input Bar */
 .chat-input-bar {
   display: flex;
   gap: 0.75rem;
-  margin-top: 0.75rem;
   padding: 0.75rem 1rem;
   align-items: center;
 }

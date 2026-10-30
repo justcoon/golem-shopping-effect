@@ -59,12 +59,14 @@ export const ShoppingAssistantAgent = ShoppingAssistantDefinition.implement({
             role: "user",
             content: message,
             timestamp: now,
+            type: "ok",
           };
           const assistantMsg: ChatMessage = {
             role: "assistant",
             content: result.reply,
             toolCalls: result.toolCallsUsed.length > 0 ? [...result.toolCallsUsed] : undefined,
             timestamp: now,
+            type: result.type,
           };
 
           yield* Ref.update(state, (prev) => ({
@@ -75,6 +77,7 @@ export const ShoppingAssistantAgent = ShoppingAssistantDefinition.implement({
           return {
             reply: result.reply,
             toolCallsUsed: [...result.toolCallsUsed],
+            type: result.type,
           };
         }),
       ).pipe(Effect.orDie),
@@ -99,12 +102,14 @@ export const ShoppingAssistantAgent = ShoppingAssistantDefinition.implement({
             role: "user",
             content: message,
             timestamp: now,
+            type: "ok",
           };
           const assistantMsg: ChatMessage = {
             role: "assistant",
             content: result.reply,
             toolCalls: result.toolCallsUsed.length > 0 ? [...result.toolCallsUsed] : undefined,
             timestamp: now,
+            type: result.type,
           };
 
           yield* Ref.update(state, (prev) => ({

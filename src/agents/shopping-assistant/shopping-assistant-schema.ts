@@ -35,11 +35,15 @@ export const ToolCallRecord = Schema.Struct({
 });
 export type ToolCallRecord = typeof ToolCallRecord.Type;
 
+export const ChatMessageType = Schema.Union([Schema.Literal("ok"), Schema.Literal("error")]);
+export type ChatMessageType = typeof ChatMessageType.Type;
+
 export const ChatMessage = Schema.Struct({
   role: ChatRole,
   content: Schema.String,
   toolCalls: Schema.optional(Schema.Array(ToolCallRecord)),
   timestamp: Schema.String,
+  type: Schema.optional(ChatMessageType),
 });
 export type ChatMessage = typeof ChatMessage.Type;
 
@@ -67,5 +71,6 @@ export type ChatRequest = typeof ChatRequest.Type;
 export const ChatResponse = Schema.Struct({
   reply: Schema.String,
   toolCallsUsed: Schema.Array(ToolCallRecord),
+  type: Schema.optional(ChatMessageType),
 });
 export type ChatResponse = typeof ChatResponse.Type;

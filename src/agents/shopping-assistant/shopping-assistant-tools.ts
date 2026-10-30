@@ -3,6 +3,9 @@ import { safeJsonStringify } from "../../common/index.js";
 import { CartAgentDefinition } from "../cart/index.js";
 import { OrderAgent } from "../order/index.js";
 import { ProductSearchAgent } from "../product-search/index.js";
+import { AssistantToolSpec, summarizeToolResult } from "./shopping-assistant-tool-specs.js";
+
+export { summarizeToolResult };
 
 export interface ToolContext {
   readonly userId: string;
@@ -15,7 +18,15 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-export const shoppingAssistantTools = [
+export interface AssistantToolDefinition extends AssistantToolSpec {
+  readonly execute: (
+    args: Record<string, unknown>,
+    ctx: ToolContext,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ) => Effect.Effect<string, never, any>;
+}
+
+export const shoppingAssistantTools: readonly AssistantToolDefinition[] = [
   {
     name: "search_products",
     description:
@@ -50,6 +61,11 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(results);
         }),
       ),
+    summarizeResult: (rawJson: string) => {
+      const data = JSON.parse(rawJson);
+      const count = Array.isArray(data) ? data.length : 0;
+      return `Found ${count} ${count === 1 ? "product" : "products"}`;
+    },
   },
   {
     name: "get_product_details",
@@ -89,6 +105,12 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(results[0]);
         }),
       ),
+    summarizeResult: (rawJson: string) => {
+      const data = JSON.parse(rawJson);
+      const name = String(data.productName ?? data.name ?? "Product");
+      const price = data.price ? ` ($${data.price})` : "";
+      return `${name}${price}`;
+    },
   },
   {
     name: "get_cart",
@@ -117,6 +139,15 @@ export const shoppingAssistantTools = [
           );
         }),
       ),
+    summarizeResult: (rawJson: string) => {
+      const data = JSON.parse(rawJson);
+      const items = Array.isArray(data.items) ? data.items : [];
+      const count = items.length;
+      const total =
+        typeof data.total === "number" ? data.total.toFixed(2) : String(data.total ?? "0");
+      const currency = String(data.currency ?? "USD");
+      return `${count} ${count === 1 ? "item" : "items"} (${currency} ${total})`;
+    },
   },
   {
     name: "add_to_cart",
@@ -163,6 +194,12 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(result);
         }),
       ),
+    summarizeResult: (rawJson: string) => {
+      const data = JSON.parse(rawJson);
+      const items = Array.isArray(data.items) ? data.items : [];
+      const count = items.length;
+      return `Added to cart (${count} ${count === 1 ? "item" : "items"} total)`;
+    },
   },
   {
     name: "update_cart_quantity",
@@ -211,6 +248,7 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(result);
         }),
       ),
+    summarizeResult: () => "Cart quantity updated",
   },
   {
     name: "remove_from_cart",
@@ -251,6 +289,7 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(result);
         }),
       ),
+    summarizeResult: () => "Item removed from cart",
   },
   {
     name: "clear_cart",
@@ -269,6 +308,7 @@ export const shoppingAssistantTools = [
           return safeJsonStringify({ success: true, message: "Cart cleared successfully." });
         }),
       ),
+    summarizeResult: () => "Cart cleared",
   },
   {
     name: "get_saved_contact_info",
@@ -297,6 +337,12 @@ export const shoppingAssistantTools = [
           );
         }),
       ),
+    summarizeResult: (rawJson: string) => {
+      const data = JSON.parse(rawJson);
+      return data.found
+        ? `Found saved info (${String(data.email ?? "")})`
+        : "No saved contact info found";
+    },
   },
   {
     name: "apply_saved_contact_info",
@@ -333,6 +379,7 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(result);
         }),
       ),
+    summarizeResult: () => "Applied saved contact details",
   },
   {
     name: "set_shipping_address",
@@ -389,6 +436,12 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(result);
         }),
       ),
+    summarizeResult: (rawJson: string) => {
+      const data = JSON.parse(rawJson);
+      const city = String(data.city ?? "");
+      const country = String(data.country ?? "");
+      return city || country ? `Shipping set (${city}, ${country})` : "Shipping address set";
+    },
   },
   {
     name: "set_billing_address",
@@ -445,6 +498,7 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(result);
         }),
       ),
+    summarizeResult: () => "Billing address set",
   },
   {
     name: "set_email",
@@ -480,6 +534,10 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(result);
         }),
       ),
+    summarizeResult: (rawJson: string) => {
+      const data = JSON.parse(rawJson);
+      return `Email set to ${String(data.email ?? "")}`;
+    },
   },
   {
     name: "checkout_cart",
@@ -525,6 +583,11 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(result);
         }),
       ),
+    summarizeResult: (rawJson: string) => {
+      const data = JSON.parse(rawJson);
+      const orderId = String(data.orderId ?? "");
+      return orderId ? `Order #${orderId.slice(0, 8)} placed` : "Checkout complete";
+    },
   },
   {
     name: "get_order_history",
@@ -555,6 +618,11 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(orders);
         }),
       ),
+    summarizeResult: (rawJson: string) => {
+      const data = JSON.parse(rawJson);
+      const count = Array.isArray(data) ? data.length : 0;
+      return `${count} past ${count === 1 ? "order" : "orders"}`;
+    },
   },
   {
     name: "get_order_details",
@@ -586,10 +654,14 @@ export const shoppingAssistantTools = [
           return safeJsonStringify(order ?? { error: `Order with ID ${orderId} not found.` });
         }),
       ),
+    summarizeResult: (rawJson: string) => {
+      const data = JSON.parse(rawJson);
+      const status = String(data.status ?? data.orderStatus ?? "retrieved");
+      const id = String(data.orderId ?? "").slice(0, 8);
+      return id ? `Order #${id} (${status})` : "Order details retrieved";
+    },
   },
 ];
-
-export type AssistantToolDefinition = (typeof shoppingAssistantTools)[number];
 
 export const toolsMap = new Map<string, AssistantToolDefinition>(
   shoppingAssistantTools.map((t) => [t.name, t]),

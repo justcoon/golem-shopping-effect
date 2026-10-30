@@ -11,6 +11,7 @@ import {
   RECOMMENDATION_PRODUCT_COUNT,
   RecommendedItems,
 } from "./shopping-assistant-schema.js";
+import { extractLlmErrorMessage } from "./shopping-assistant-loop.js";
 
 export function cleanMarkdownJsonString(input: string): string {
   return input.replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/, "$1").trim();
@@ -145,18 +146,8 @@ Return the list of productId-s and list of productBrand-s as a valid JSON object
             return yield* response.json;
           }
           const bodyText = yield* response.text.pipe(Effect.catch(() => Effect.succeed("")));
-          let msg = `HTTP ${response.status}`;
-          try {
-            const parsed = JSON.parse(bodyText) as { error?: { message?: string } };
-            if (parsed?.error?.message) {
-              msg += `: ${parsed.error.message}`;
-            } else if (bodyText) {
-              msg += `: ${bodyText}`;
-            }
-          } catch {
-            if (bodyText) msg += `: ${bodyText}`;
-          }
-          return yield* Effect.fail(new Error(msg));
+          const logMsg = extractLlmErrorMessage(response.status, bodyText);
+          return yield* Effect.fail(new Error(`HTTP ${response.status}: ${logMsg}`));
         }),
       ),
       Effect.provide(FetchHttpClient.layer),

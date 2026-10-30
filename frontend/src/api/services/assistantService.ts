@@ -19,6 +19,7 @@ export interface ChatMessage {
   content: string;
   toolCalls?: ToolCallRecord[];
   timestamp: string;
+  type?: "ok" | "error";
 }
 
 export interface ChatChunk {
@@ -30,6 +31,7 @@ export interface ChatChunk {
 export interface ChatResponse {
   reply: string;
   toolCallsUsed: ToolCallRecord[];
+  type?: "ok" | "error";
 }
 
 export const getRecommendedProducts = async (
