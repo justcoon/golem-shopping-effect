@@ -76,7 +76,7 @@ npm run lint        # npx eslint src/ test/
 Command executed:
 
 ```bash
-npm run build       # golem build --yes
+golem build --yes
 ```
 
 **Result**:

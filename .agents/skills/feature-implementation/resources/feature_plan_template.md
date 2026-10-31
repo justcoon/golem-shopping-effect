@@ -69,7 +69,7 @@ List all files that will be created, modified, or removed. Group by component or
   ```
 - **Golem Component Build**:
   ```bash
-  npm run build       # golem build --yes
+  golem build --yes
   ```
 - **Automated Unit & Integration Tests**:
   ```bash

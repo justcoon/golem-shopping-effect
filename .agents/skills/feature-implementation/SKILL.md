@@ -93,11 +93,12 @@ Once user approval is granted:
      npm run lint        # npx eslint src/ test/
      ```
      Verify that there are zero lint errors and zero unused symbols/imports.
-   - **Golem Build**:
+   - **Golem Build (Mandatory Verification Step)**:
      ```bash
-     npm run build       # golem build --yes
+     golem build --yes
      ```
-     Verify that the WASM component bundle builds cleanly.
+     Verify that the WASM component bundle compiles, bundles through Rollup, injects into the QuickJS WASM runtime, and preinitializes cleanly without errors.
+     *(Note: If the `golem` binary resides in an external PATH outside the workspace, run this step with elevated permission so the binary can execute).*
    - **Automated Unit & Integration Tests**:
      ```bash
      npm test            # npx tsx --test "test/*.test.ts"
@@ -126,7 +127,7 @@ Once implementation and all validation checks pass:
      - Formatting: `npm run format:check`
      - Typecheck: `npm run typecheck` (`npx tsc --noEmit`)
      - Linter: `npm run lint` (`npx eslint src/ test/`)
-     - Build: `npm run build` (`golem build --yes`)
+     - Build: `golem build --yes`
      - Unit/Integration Tests: `npm test`
      - Runtime smoke verification
    - **Verification / Usage Guide**: Step-by-step instructions for how the user can test or interact with the feature.
