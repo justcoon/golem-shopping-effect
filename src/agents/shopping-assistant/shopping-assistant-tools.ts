@@ -1,8 +1,9 @@
-import { Effect, Schema } from "effect";
+import { Context, Effect, Schema } from "effect";
 import { safeJsonStringify } from "../../common/index.js";
 import { CartAgentDefinition } from "../cart/index.js";
 import { OrderAgent } from "../order/index.js";
 import { ProductSearchAgent } from "../product-search/index.js";
+import { createPiAgentTools } from "./shopping-assistant-pi-tools.js";
 import {
   AddToCartArgs,
   addToCartSpec,
@@ -463,3 +464,7 @@ export const toolsOpenAiFormat = shoppingAssistantTools.map((t) => ({
     parameters: schemaToJsonSchema(t.parameters),
   },
 }));
+
+export function getShoppingAssistantPiTools(userId: string, context?: Context.Context<never>) {
+  return createPiAgentTools(shoppingAssistantTools, userId, context);
+}

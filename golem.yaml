@@ -37,7 +37,7 @@ secretDefaults:
 #      model: "openrouter/free"
       apiKey: '{{ GEMINI_API_KEY }}'
       model: "gemini-3.1-flash-lite"
-      apiUrl: "https://generativelanguage.googleapis.com/v1beta/openai"
+      apiUrl: "https://generativelanguage.googleapis.com/v1beta"
 httpApi:
   deployments:
     local:

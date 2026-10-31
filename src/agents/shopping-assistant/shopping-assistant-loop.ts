@@ -1,23 +1,18 @@
-import { Duration, Effect, Stream } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
-import { Retry } from "@golemcloud/effect-golem";
-import {
-  extractLlmErrorMessage,
-  fixMojibake,
-  formatLlmUserErrorMessage,
-  safeJsonStringify,
-} from "../../common/index.js";
+import { Effect, Stream } from "effect";
+import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
+import { extractLlmErrorMessage, fixMojibake, formatLlmErrorMessage } from "../../common/index.js";
 import {
   ChatChunk,
   ChatMessage,
   ChatMessageType,
   ToolCallRecord,
 } from "./shopping-assistant-schema.js";
-import { toolsMap, toolsOpenAiFormat } from "./shopping-assistant-tools.js";
+import { setupModelsAndProvider } from "./shopping-assistant-pi-provider.js";
+import { getShoppingAssistantPiTools } from "./shopping-assistant-tools.js";
 
-export { extractLlmErrorMessage, fixMojibake, formatLlmUserErrorMessage };
+export { extractLlmErrorMessage, fixMojibake, formatLlmErrorMessage, setupModelsAndProvider };
 
-const SYSTEM_PROMPT = `You are a helpful, courteous, and efficient personal Shopping Assistant for our e-commerce store.
+export const SYSTEM_PROMPT = `You are a helpful, courteous, and efficient personal Shopping Assistant for our e-commerce store.
 You have access to tools to help the user:
 - Search products and inspect live pricing (search_products)
 - Get full details on a specific product (get_product_details)
@@ -40,45 +35,11 @@ Guidelines:
 4. When showing order history, summarize recent orders clearly (status, total, date).
 5. Output plain ASCII punctuation: use standard hyphens ('-') instead of special en-dashes ('–') or em-dashes ('—'), and standard quotes.`;
 
-const llmRetryPolicy = Retry.NamedPolicy.named(
-  "shopping-assistant-chat-retry",
-  Retry.Policy.exponential(Duration.millis(1000), 2).withJitter(0.2).maxRetries(3),
-);
-
-interface OpenAiMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
-  tool_calls?: Array<{
-    id: string;
-    type: "function";
-    function: {
-      name: string;
-      arguments: string;
-    };
-  }>;
-  tool_call_id?: string;
-}
-
-interface OpenAiChatCompletionResponse {
-  choices?: Array<{
-    message?: {
-      content?: string | null;
-      tool_calls?: Array<{
-        id: string;
-        type: "function";
-        function: {
-          name: string;
-          arguments: string;
-        };
-      }>;
-    };
-  }>;
-}
-
 export interface ChatTurnResult {
   readonly reply: string;
   readonly toolCallsUsed: readonly ToolCallRecord[];
   readonly chunks: readonly ChatChunk[];
+  readonly type: ChatMessageType;
 }
 
 export function executeChatTurn(options: {
@@ -88,7 +49,7 @@ export function executeChatTurn(options: {
   readonly apiUrl?: string;
   readonly history: readonly ChatMessage[];
   readonly userMessage: string;
-}) {
+}): Effect.Effect<ChatTurnResult> {
   return Effect.gen(function* () {
     const { userId, apiKey, model, apiUrl, history, userMessage } = options;
 
@@ -107,159 +68,138 @@ export function executeChatTurn(options: {
       };
     }
 
-    const endpoint = apiUrl
-      ? `${apiUrl.replace(/\/$/, "")}/chat/completions`
-      : "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+    const { models, resolvedModel } = setupModelsAndProvider({ apiKey, model, apiUrl });
+    const context = yield* Effect.context();
+    const tools = getShoppingAssistantPiTools(userId, context);
 
-    const messages: OpenAiMessage[] = [{ role: "system", content: SYSTEM_PROMPT }];
-
-    // Append prior history
+    // Convert prior history to Pi AgentMessage[] format
+    const initialMessages: AgentMessage[] = [];
     for (const h of history) {
-      if (h.role === "user" || h.role === "assistant") {
-        messages.push({ role: h.role, content: h.content });
+      if (h.role === "user") {
+        initialMessages.push({
+          role: "user",
+          content: [{ type: "text", text: h.content }],
+          timestamp: Date.now(),
+        });
+      } else if (h.role === "assistant") {
+        initialMessages.push({
+          role: "assistant",
+          content: [{ type: "text", text: h.content }],
+          api: resolvedModel.api,
+          provider: resolvedModel.provider,
+          model: resolvedModel.id,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "stop",
+          timestamp: Date.now(),
+        });
       }
     }
 
-    // Append current user message
-    messages.push({ role: "user", content: userMessage });
-
-    const accumulatedToolCalls: ToolCallRecord[] = [];
     const chunks: ChatChunk[] = [];
-    let finalReply = "";
+    const accumulatedToolCalls: ToolCallRecord[] = [];
+    const toolArgsById = new Map<string, unknown>();
     let isError = false;
+    let errorMessage = "";
 
-    const MAX_STEPS = 5;
-    for (let step = 0; step < MAX_STEPS; step++) {
-      const payload = {
-        model,
-        messages,
-        tools: toolsOpenAiFormat,
-      };
+    const agent = new Agent({
+      initialState: {
+        systemPrompt: SYSTEM_PROMPT,
+        model: resolvedModel,
+        tools,
+        messages: initialMessages,
+      },
+      streamFn: models.streamSimple.bind(models),
+      getApiKey: () => apiKey,
+    });
 
-      let lastErrorMessage = "";
-      const postEffect = HttpClientRequest.post(endpoint).pipe(
-        HttpClientRequest.setHeaders({
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://golem.cloud",
-          "X-Title": "Golem Shopping Effect",
-        }),
-        HttpClientRequest.bodyText(safeJsonStringify(payload), "application/json"),
-        HttpClient.execute,
-        Effect.flatMap((response) =>
-          Effect.gen(function* () {
-            if (response.status >= 200 && response.status < 300) {
-              return yield* response.json;
-            }
-            const bodyText = yield* response.text.pipe(Effect.catch(() => Effect.succeed("")));
-            const detail = extractLlmErrorMessage(response.status, bodyText);
-            const formatted = `AI service error (${response.status}): ${detail}`;
-            lastErrorMessage = formatted;
-            return yield* Effect.fail(new Error(`HTTP ${response.status}: ${detail}`));
-          }),
-        ),
-        Effect.provide(FetchHttpClient.layer),
-      );
-
-      const responseJson = yield* Retry.withPolicy(llmRetryPolicy, postEffect).pipe(
-        Effect.catch((err: unknown) =>
-          Effect.logWarning(`LLM chat request failed: ${err}`).pipe(
-            Effect.as(null as OpenAiChatCompletionResponse | null),
-          ),
-        ),
-      );
-
-      const parsedResponse = responseJson as OpenAiChatCompletionResponse | null;
-      if (!parsedResponse?.choices || parsedResponse.choices.length === 0) {
-        isError = true;
-        finalReply =
-          lastErrorMessage ||
-          "AI service error: Unable to communicate with the AI model. Please try again in a moment.";
-        chunks.push({ type: "text_delta", content: finalReply, tool: "" });
-        chunks.push({ type: "error", content: finalReply, tool: "" });
-        break;
-      }
-
-      const choice = parsedResponse.choices[0];
-      const assistantMessage = choice?.message;
-
-      // Check if model called any tools
-      const toolCalls = assistantMessage?.tool_calls;
-      if (toolCalls && toolCalls.length > 0) {
-        messages.push({
-          role: "assistant",
-          content: assistantMessage.content ?? null,
-          tool_calls: toolCalls,
-        });
-
-        for (const call of toolCalls) {
-          const fnName = call.function?.name ?? "";
-          const fnArgsStr = call.function?.arguments ?? "{}";
-          let parsedArgs: Record<string, unknown> = {};
-          try {
-            parsedArgs = JSON.parse(fnArgsStr) as Record<string, unknown>;
-          } catch {
-            parsedArgs = {};
-          }
-
-          yield* Effect.logInfo(
-            `[ShoppingAssistant] Invoking tool '${fnName}' (callId: ${call.id}) for user '${userId}' with args: ${fnArgsStr}`,
-          );
-
+    agent.subscribe((event) => {
+      switch (event.type) {
+        case "tool_execution_start": {
+          toolArgsById.set(event.toolCallId, event.args);
           chunks.push({
             type: "tool_start",
-            tool: fnName,
-            content: `Executing ${fnName}...`,
+            tool: event.toolName,
+            content: `Executing ${event.toolName}...`,
           });
-
-          const toolDef = toolsMap.get(fnName);
-          let toolSummary: string;
-          let toolResult: string;
-
-          if (toolDef) {
-            const output = yield* toolDef.run(parsedArgs, { userId });
-            toolSummary = output.summary;
-            toolResult = output.resultString;
-          } else {
-            yield* Effect.logWarning(
-              `[ShoppingAssistant] Tool '${fnName}' not recognized in available tools map`,
-            );
-            toolSummary = `Failed: Tool ${fnName} not recognized.`;
-            toolResult = safeJsonStringify({ error: `Tool ${fnName} not recognized.` });
-          }
-
-          yield* Effect.logInfo(
-            `[ShoppingAssistant] Tool '${fnName}' completed (result length: ${toolResult.length}): ${toolResult.length > 500 ? toolResult.slice(0, 500) + "..." : toolResult}`,
-          );
-
+          break;
+        }
+        case "tool_execution_end": {
+          const summary =
+            event.result?.details?.summary ?? (event.isError ? "Failed" : "Completed");
+          const resultString =
+            event.result?.details?.resultString ?? JSON.stringify(event.result ?? {});
           chunks.push({
             type: "tool_result",
-            tool: fnName,
-            content: toolSummary,
+            tool: event.toolName,
+            content: summary,
           });
-
-          const record: ToolCallRecord = {
-            id: call.id,
-            toolName: fnName,
-            arguments: fnArgsStr,
-            result: toolResult,
-          };
-          accumulatedToolCalls.push(record);
-
-          messages.push({
-            role: "tool",
-            tool_call_id: call.id,
-            content: toolResult,
+          const rawArgs = toolArgsById.get(event.toolCallId);
+          accumulatedToolCalls.push({
+            id: event.toolCallId,
+            toolName: event.toolName,
+            arguments: typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs ?? {}),
+            result: resultString,
           });
+          break;
         }
-        // Continue loop to let model process tool outputs
-        continue;
+        case "message_update": {
+          const update = event.assistantMessageEvent;
+          if (update.type === "text_delta" && update.delta) {
+            chunks.push({
+              type: "text_delta",
+              content: update.delta,
+              tool: "",
+            });
+          }
+          break;
+        }
+        default:
+          break;
       }
+    });
 
-      // Final assistant response with no tool calls
-      finalReply = fixMojibake(assistantMessage?.content ?? "");
+    try {
+      yield* Effect.promise(() => agent.prompt(userMessage));
+    } catch (err: unknown) {
+      isError = true;
+      errorMessage = err instanceof Error ? err.message : String(err);
+    }
+
+    if (agent.state.errorMessage) {
+      isError = true;
+      errorMessage = agent.state.errorMessage;
+    }
+
+    let finalReply = "";
+    if (isError) {
+      const raw = errorMessage || "AI service request failed";
+      const cleaned = extractLlmErrorMessage(400, raw);
+      finalReply =
+        cleaned && !cleaned.startsWith("HTTP 400")
+          ? `AI service error: ${cleaned}`
+          : `AI service error: ${raw}`;
       chunks.push({ type: "text_delta", content: finalReply, tool: "" });
-      break;
+      chunks.push({ type: "error", content: finalReply, tool: "" });
+    } else {
+      const lastMsg = agent.state.messages[agent.state.messages.length - 1];
+      if (lastMsg && lastMsg.role === "assistant") {
+        for (const block of lastMsg.content) {
+          if (block.type === "text") {
+            finalReply += block.text;
+          }
+        }
+      }
+      finalReply = fixMojibake(finalReply);
+      if (chunks.length === 0 || !chunks.some((c) => c.type === "text_delta")) {
+        chunks.push({ type: "text_delta", content: finalReply, tool: "" });
+      }
     }
 
     chunks.push({ type: "done", content: "", tool: "" });
@@ -280,7 +220,7 @@ export function executeChatTurnStream(options: {
   readonly apiUrl?: string;
   readonly history: readonly ChatMessage[];
   readonly userMessage: string;
-}) {
+}): Stream.Stream<ChatChunk> {
   return Stream.fromEffect(executeChatTurn(options)).pipe(
     Stream.flatMap((result) => Stream.fromIterable(result.chunks)),
   );
