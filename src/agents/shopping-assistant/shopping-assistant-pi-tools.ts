@@ -51,13 +51,8 @@ export function toPiAgentTool(
 
           const output = (yield* toolDef.run(params, { userId })) as ToolExecutionOutput;
 
-          const preview =
-            output.resultString.length > 500
-              ? `${output.resultString.slice(0, 500)}...`
-              : output.resultString;
-
           yield* Effect.logInfo(
-            `[ShoppingAssistant] Tool '${toolDef.name}' completed (result length: ${output.resultString.length}): ${preview}`,
+            `[ShoppingAssistant] Tool '${toolDef.name}' completed (result length: ${output.resultString.length})`,
           );
 
           return output;
