@@ -5,8 +5,10 @@
  */
 export function extractLlmErrorMessage(status: number, bodyText: string): string {
   if (bodyText) {
+    const trimmed = bodyText.trim();
+    const jsonCandidate = trimmed.replace(/^(HTTP\s*)?\d+\s*:?\s*/i, "").trim();
     try {
-      const parsed: unknown = JSON.parse(bodyText);
+      const parsed: unknown = JSON.parse(jsonCandidate || trimmed);
       const item: unknown = Array.isArray(parsed) && parsed.length > 0 ? parsed[0] : parsed;
       if (item && typeof item === "object") {
         const record = item as Record<string, unknown>;
@@ -19,7 +21,7 @@ export function extractLlmErrorMessage(status: number, bodyText: string): string
         const match = bodyText.match(/<title>(.*?)<\/title>/i);
         if (match && match[1]) return match[1].trim();
       }
-      return bodyText.trim();
+      return trimmed;
     }
   }
   return `HTTP ${status} error`;

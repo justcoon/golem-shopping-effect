@@ -36,6 +36,16 @@ describe("LLM Error Formatting", () => {
     );
   });
 
+  it("parses error string prefixed with HTTP status code", () => {
+    const raw400 =
+      '400 [{"error":{"code":400,"message":"Invalid JSON payload received. Unknown name \\"store\\": Cannot find field.","status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.BadRequest","fieldViolations":[{"description":"Invalid JSON payload received. Unknown name \\"store\\": Cannot find field."}]}]}}]';
+    const extracted = extractLlmErrorMessage(400, raw400);
+    assert.strictEqual(
+      extracted,
+      'Invalid JSON payload received. Unknown name "store": Cannot find field.',
+    );
+  });
+
   it("parses standard object error format (HTTP 429 rate limit)", () => {
     const raw429 = JSON.stringify({
       error: {
