@@ -171,6 +171,62 @@ const formatToolName = (name: string) => {
   return name.replace(/_/g, " ");
 };
 
+const copiedFieldKey = ref<string | null>(null);
+let copyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+const copyToClipboard = async (text: string, fieldKey: string) => {
+  if (!text) return;
+  try {
+    let toCopy = text;
+    try {
+      const parsed = JSON.parse(text);
+      toCopy = JSON.stringify(parsed, null, 2);
+    } catch {
+      // keep raw text
+    }
+    await navigator.clipboard.writeText(toCopy);
+    copiedFieldKey.value = fieldKey;
+    if (copyTimeout) clearTimeout(copyTimeout);
+    copyTimeout = setTimeout(() => {
+      copiedFieldKey.value = null;
+    }, 2000);
+  } catch (err) {
+    console.error("Failed to copy to clipboard:", err);
+  }
+};
+
+function formatAndHighlightJson(val: string): string {
+  if (!val || !val.trim()) return "";
+  let formatted = val;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(val);
+    formatted = JSON.stringify(parsed, null, 2);
+  } catch {
+    return escapeHtml(val);
+  }
+
+  const escaped = escapeHtml(formatted);
+  return escaped.replace(
+    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+    (match) => {
+      let cls = "json-number";
+      if (/^"/.test(match)) {
+        if (/:$/.test(match)) {
+          cls = "json-key";
+        } else {
+          cls = "json-string";
+        }
+      } else if (/true|false/.test(match)) {
+        cls = "json-boolean";
+      } else if (/null/.test(match)) {
+        cls = "json-null";
+      }
+      return `<span class="${cls}">${match}</span>`;
+    },
+  );
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -455,19 +511,54 @@ function renderMarkdown(md: string): string {
             <span class="tool-summary-text">
               {{ msg.toolCalls.length }} {{ msg.toolCalls.length === 1 ? "tool call" : "tool calls" }}
             </span>
+            <span class="tool-summary-chevron">▾</span>
           </summary>
           <div class="tool-calls-container">
-            <div v-for="tc in msg.toolCalls" :key="tc.id" class="tool-call-pill">
-              <span class="tool-icon">⚡</span>
-              <span class="tool-name">{{ formatToolName(tc.toolName) }}</span>
-              <details v-if="tc.arguments || tc.result" class="tool-details">
-                <summary>inspect</summary>
-                <div v-if="tc.arguments" class="tool-payload">
-                  <strong>Args:</strong> <code>{{ tc.arguments }}</code>
+            <div v-for="tc in msg.toolCalls" :key="tc.id" class="tool-call-card">
+              <div class="tool-card-header">
+                <div class="tool-card-title">
+                  <span class="tool-card-icon">⚡</span>
+                  <span class="tool-card-name">{{ formatToolName(tc.toolName) }}</span>
                 </div>
-                <div v-if="tc.result" class="tool-payload">
-                  <strong>Result:</strong> <code>{{ tc.result }}</code>
-                </div>
+                <span v-if="tc.id" class="tool-card-id" :title="tc.id">#{{ tc.id.slice(-8) }}</span>
+              </div>
+
+              <!-- Tool Arguments Section (Collapsible) -->
+              <details v-if="tc.arguments && tc.arguments.trim()" class="tool-section">
+                <summary class="tool-section-summary">
+                  <div class="tool-section-left">
+                    <span class="tool-section-chevron">▸</span>
+                    <span class="tool-section-label">Arguments</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="tool-copy-btn"
+                    title="Copy arguments"
+                    @click.stop="copyToClipboard(tc.arguments, `${tc.id}-args`)"
+                  >
+                    {{ copiedFieldKey === `${tc.id}-args` ? "✓ Copied" : "📋 Copy" }}
+                  </button>
+                </summary>
+                <pre class="tool-code-block"><code v-html="formatAndHighlightJson(tc.arguments)"></code></pre>
+              </details>
+
+              <!-- Tool Result Section (Collapsible) -->
+              <details v-if="tc.result && tc.result.trim()" class="tool-section">
+                <summary class="tool-section-summary">
+                  <div class="tool-section-left">
+                    <span class="tool-section-chevron">▸</span>
+                    <span class="tool-section-label">Result</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="tool-copy-btn"
+                    title="Copy result"
+                    @click.stop="copyToClipboard(tc.result, `${tc.id}-res`)"
+                  >
+                    {{ copiedFieldKey === `${tc.id}-res` ? "✓ Copied" : "📋 Copy" }}
+                  </button>
+                </summary>
+                <pre class="tool-code-block"><code v-html="formatAndHighlightJson(tc.result)"></code></pre>
               </details>
             </div>
           </div>
@@ -965,19 +1056,20 @@ function renderMarkdown(md: string): string {
 
 /* Tool Calls */
 .tool-calls-group {
-  margin-top: 0.6rem;
-  margin-bottom: 0.2rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+  width: 100%;
 }
 
 .tool-calls-summary {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
   cursor: pointer;
   font-size: 0.75rem;
   color: var(--text-muted);
   user-select: none;
-  padding: 0.2rem 0.5rem;
+  padding: 0.25rem 0.6rem;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -992,50 +1084,186 @@ function renderMarkdown(md: string): string {
 }
 
 .tool-summary-icon {
-  font-size: 0.75rem;
+  font-size: 0.8rem;
+}
+
+.tool-summary-chevron {
+  font-size: 0.7rem;
+  opacity: 0.7;
+  transition: transform 0.2s ease;
+}
+
+details[open] > .tool-calls-summary .tool-summary-chevron {
+  transform: rotate(180deg);
 }
 
 .tool-calls-container {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  margin-top: 0.4rem;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
   padding-left: 0.5rem;
-  border-left: 2px solid rgba(139, 92, 246, 0.2);
+  border-left: 2px solid rgba(139, 92, 246, 0.3);
 }
 
-.tool-call-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: rgba(139, 92, 246, 0.15);
-  color: #c084fc;
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  padding: 0.25rem 0.6rem;
+.tool-call-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(139, 92, 246, 0.2);
   border-radius: 8px;
-  font-size: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.78rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.tool-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tool-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  color: #c084fc;
   font-family: "JetBrains Mono", monospace;
-  width: fit-content;
+  font-size: 0.8rem;
 }
 
-.tool-details summary {
+.tool-card-icon {
+  font-size: 0.85rem;
+}
+
+.tool-card-id {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+}
+
+.tool-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tool-section-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.6rem;
   cursor: pointer;
-  color: var(--accent-cyan);
-  margin-left: 0.4rem;
-  text-decoration: underline;
+  user-select: none;
+  background: rgba(255, 255, 255, 0.02);
+  transition: background 0.15s ease;
 }
 
-.tool-payload {
-  margin-top: 0.4rem;
+.tool-section-summary:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tool-section-left {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.tool-section-chevron {
   font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+  display: inline-block;
+  line-height: 1;
+}
+
+details[open] > .tool-section-summary .tool-section-chevron {
+  transform: rotate(90deg);
+  color: var(--accent-cyan);
+}
+
+.tool-section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: var(--text-muted);
 }
 
-.tool-payload code {
-  background: rgba(15, 23, 42, 0.8);
-  padding: 0.2rem 0.4rem;
+details[open] > .tool-section-summary .tool-section-label {
+  color: var(--text-primary);
+}
+
+.tool-copy-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  padding: 0.15rem 0.45rem;
   border-radius: 4px;
-  color: var(--accent-cyan);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tool-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.tool-code-block {
+  margin: 0;
+  background: #090d16;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: none;
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+  padding: 0.55rem 0.75rem;
+  max-height: 240px;
+  overflow: auto;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-code-block code {
+  font-family: inherit;
+}
+
+/* Syntax highlighting in tool code blocks */
+.tool-code-block :deep(.json-key) {
+  color: #7dd3fc;
+  font-weight: 500;
+}
+
+.tool-code-block :deep(.json-string) {
+  color: #86efac;
+}
+
+.tool-code-block :deep(.json-number) {
+  color: #f59e0b;
+}
+
+.tool-code-block :deep(.json-boolean) {
+  color: #c084fc;
+  font-weight: 600;
+}
+
+.tool-code-block :deep(.json-null) {
+  color: #94a3b8;
+  font-style: italic;
 }
 
 /* Active Tools Indicator */

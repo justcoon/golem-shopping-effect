@@ -58,10 +58,7 @@ export type ChatChunkType = typeof ChatChunkType.Type;
 export const ChatChunk = Schema.Struct({
   type: ChatChunkType,
   content: Schema.String,
-  tool: Schema.String,
-  id: Schema.optional(Schema.String),
-  arguments: Schema.optional(Schema.String),
-  result: Schema.optional(Schema.String),
+  toolCall: ToolCallRecord,
 });
 export type ChatChunk = typeof ChatChunk.Type;
 

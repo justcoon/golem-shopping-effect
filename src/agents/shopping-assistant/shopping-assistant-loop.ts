@@ -42,6 +42,23 @@ export interface ChatTurnResult {
   readonly type: ChatMessageType;
 }
 
+function makeChunk(
+  type: ChatChunk["type"],
+  content = "",
+  toolCall: Partial<ToolCallRecord> = {},
+): ChatChunk {
+  return {
+    type,
+    content,
+    toolCall: {
+      id: toolCall.id ?? "",
+      toolName: toolCall.toolName ?? "",
+      arguments: toolCall.arguments ?? "",
+      result: toolCall.result ?? "",
+    },
+  };
+}
+
 export function executeChatTurn(options: {
   readonly userId: string;
   readonly apiKey: string;
@@ -59,11 +76,7 @@ export function executeChatTurn(options: {
       return {
         reply: msg,
         toolCallsUsed: [],
-        chunks: [
-          { type: "text_delta" as const, content: msg, tool: "" },
-          { type: "error" as const, content: msg, tool: "" },
-          { type: "done" as const, content: "", tool: "" },
-        ],
+        chunks: [makeChunk("text_delta", msg), makeChunk("error", msg), makeChunk("done", "")],
         type: "error" as ChatMessageType,
       };
     }
@@ -108,6 +121,14 @@ export function executeChatTurn(options: {
     let isError = false;
     let errorMessage = "";
 
+    const pushChunk = (
+      type: ChatChunk["type"],
+      content = "",
+      toolCall: Partial<ToolCallRecord> = {},
+    ) => {
+      chunks.push(makeChunk(type, content, toolCall));
+    };
+
     const agent = new Agent({
       initialState: {
         systemPrompt: SYSTEM_PROMPT,
@@ -125,11 +146,9 @@ export function executeChatTurn(options: {
           const argsString =
             typeof event.args === "string" ? event.args : JSON.stringify(event.args ?? {});
           toolArgsById.set(event.toolCallId, argsString);
-          chunks.push({
-            type: "tool_start",
-            tool: event.toolName,
-            content: `Executing ${event.toolName}...`,
+          pushChunk("tool_start", `Executing ${event.toolName}...`, {
             id: event.toolCallId,
+            toolName: event.toolName,
             arguments: argsString,
           });
           break;
@@ -139,14 +158,13 @@ export function executeChatTurn(options: {
             event.result?.details?.summary ?? (event.isError ? "Failed" : "Completed");
           const resultString =
             event.result?.details?.resultString ?? JSON.stringify(event.result ?? {});
-          chunks.push({
-            type: "tool_result",
-            tool: event.toolName,
-            content: summary,
+          const rawArgs = (toolArgsById.get(event.toolCallId) as string) ?? "";
+          pushChunk("tool_result", summary, {
             id: event.toolCallId,
+            toolName: event.toolName,
+            arguments: rawArgs,
             result: resultString,
           });
-          const rawArgs = (toolArgsById.get(event.toolCallId) as string) ?? "";
           accumulatedToolCalls.push({
             id: event.toolCallId,
             toolName: event.toolName,
@@ -158,11 +176,7 @@ export function executeChatTurn(options: {
         case "message_update": {
           const update = event.assistantMessageEvent;
           if (update.type === "text_delta" && update.delta) {
-            chunks.push({
-              type: "text_delta",
-              content: update.delta,
-              tool: "",
-            });
+            pushChunk("text_delta", update.delta);
           }
           break;
         }
@@ -191,8 +205,8 @@ export function executeChatTurn(options: {
         cleaned && !cleaned.startsWith("HTTP 400")
           ? `AI service error: ${cleaned}`
           : `AI service error: ${raw}`;
-      chunks.push({ type: "text_delta", content: finalReply, tool: "" });
-      chunks.push({ type: "error", content: finalReply, tool: "" });
+      pushChunk("text_delta", finalReply);
+      pushChunk("error", finalReply);
     } else {
       const lastMsg = agent.state.messages[agent.state.messages.length - 1];
       if (lastMsg && lastMsg.role === "assistant") {
@@ -204,11 +218,11 @@ export function executeChatTurn(options: {
       }
       finalReply = fixMojibake(finalReply);
       if (chunks.length === 0 || !chunks.some((c) => c.type === "text_delta")) {
-        chunks.push({ type: "text_delta", content: finalReply, tool: "" });
+        pushChunk("text_delta", finalReply);
       }
     }
 
-    chunks.push({ type: "done", content: "", tool: "" });
+    pushChunk("done", "");
 
     return {
       reply: finalReply,

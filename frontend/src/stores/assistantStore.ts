@@ -102,35 +102,48 @@ export const useAssistantStore = defineStore("assistant", () => {
       isStreaming.value = true;
       try {
         await streamChatWithAssistant(authStore.userId, content, (chunk: ChatChunk) => {
-          if (chunk.type === "tool_start" && chunk.tool) {
-            const tcId = chunk.id ?? `${chunk.tool}-${Date.now()}`;
-            usedToolNames.push(chunk.tool);
+          const tc = chunk.toolCall;
+
+          if (chunk.type === "tool_start" && tc?.toolName) {
+            const finalId = tc.id || `${tc.toolName}-${Date.now()}`;
+            usedToolNames.push(tc.toolName);
             activeTools.value.push({
-              id: tcId,
-              name: chunk.tool,
+              id: finalId,
+              name: tc.toolName,
               status: "running",
               summary: chunk.content,
             });
             accumulatedToolCalls.push({
-              id: tcId,
-              toolName: chunk.tool,
-              arguments: chunk.arguments ?? "",
+              id: finalId,
+              toolName: tc.toolName,
+              arguments: tc.arguments ?? "",
               result: "",
             });
-          } else if (chunk.type === "tool_result" && chunk.tool) {
+          } else if (chunk.type === "tool_result" && tc?.toolName) {
+            const finalId = tc.id;
             const tool = activeTools.value.find(
               (t) =>
-                (chunk.id ? t.id === chunk.id : t.name === chunk.tool && t.status === "running"),
+                (finalId ? t.id === finalId : t.name === tc.toolName && t.status === "running"),
             );
             if (tool) {
               tool.status = "completed";
               tool.summary = chunk.content;
             }
-            const tc = accumulatedToolCalls.find(
-              (t) => (chunk.id ? t.id === chunk.id : t.toolName === chunk.tool && !t.result),
+            const existingTc = accumulatedToolCalls.find(
+              (t) => (finalId ? t.id === finalId : t.toolName === tc.toolName && !t.result),
             );
-            if (tc) {
-              tc.result = chunk.result ?? chunk.content;
+            if (existingTc) {
+              existingTc.result = tc.result || chunk.content;
+              if (tc.arguments && !existingTc.arguments) {
+                existingTc.arguments = tc.arguments;
+              }
+            } else {
+              accumulatedToolCalls.push({
+                id: finalId || `${tc.toolName}-${Date.now()}`,
+                toolName: tc.toolName,
+                arguments: tc.arguments ?? "",
+                result: tc.result || chunk.content,
+              });
             }
           } else if (chunk.type === "text_delta") {
             streamingText.value += chunk.content;
