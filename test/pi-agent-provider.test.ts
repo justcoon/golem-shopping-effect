@@ -2,15 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createModels, createProvider, type Model } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { setupModelsAndProvider } from "../src/agents/shopping-assistant/shopping-assistant-pi-provider.js";
 
 test("custom OpenAI provider can be registered in createModels", () => {
   const models = createModels();
   const dynamicModel: Model<"openai-completions"> = {
-    id: "gemini-3.1-flash-lite",
-    name: "gemini-3.1-flash-lite",
+    id: "test-model",
+    name: "test-model",
     api: "openai-completions",
     provider: "test-openai",
-    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    baseUrl: "https://example.com/v1",
     reasoning: false,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -22,7 +23,7 @@ test("custom OpenAI provider can be registered in createModels", () => {
   const provider = createProvider({
     id: "test-openai",
     name: "Test OpenAI",
-    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    baseUrl: "https://example.com/v1",
     auth: {
       apiKey: {
         name: "API Key",
@@ -37,8 +38,40 @@ test("custom OpenAI provider can be registered in createModels", () => {
   });
 
   models.setProvider(provider);
-  const found = models.getModel("test-openai", "gemini-3.1-flash-lite");
+  const found = models.getModel("test-openai", "test-model");
   assert.ok(found);
-  assert.equal(found.id, "gemini-3.1-flash-lite");
+  assert.equal(found.id, "test-model");
   assert.equal(found.api, "openai-completions");
+});
+
+test("setupModelsAndProvider routes Gemini models to native Google Generative AI provider", () => {
+  const result = setupModelsAndProvider({
+    apiKey: "dummy-key",
+    model: "gemini-3.1-flash-lite",
+    apiUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+  });
+
+  assert.equal(result.resolvedModel.provider, "google");
+  assert.equal(result.resolvedModel.id, "gemini-3.1-flash-lite");
+  assert.equal(result.resolvedModel.api, "google-generative-ai");
+});
+
+test("setupModelsAndProvider routes OpenRouter models to openrouter provider", () => {
+  const result = setupModelsAndProvider({
+    apiKey: "dummy-key",
+    model: "openrouter/free",
+  });
+
+  assert.equal(result.resolvedModel.provider, "openrouter");
+});
+
+test("setupModelsAndProvider routes custom endpoints to dynamic OpenAI provider", () => {
+  const result = setupModelsAndProvider({
+    apiKey: "dummy-key",
+    model: "llama-3-70b",
+    apiUrl: "https://my-custom-llm.internal/v1",
+  });
+
+  assert.equal(result.resolvedModel.provider, "dynamic-llm");
+  assert.equal(result.resolvedModel.api, "openai-completions");
 });

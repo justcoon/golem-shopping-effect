@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Schema, Effect } from "effect";
+import { Schema, Effect, Context } from "effect";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { Model } from "@earendil-works/pi-ai";
@@ -184,4 +184,40 @@ test("Pi Agent executes turn with mock model, tool calls, and event stream", asy
   const lastMsg = agent.state.messages[agent.state.messages.length - 1];
   assert.equal(lastMsg?.role, "assistant");
   assert.deepEqual(lastMsg?.content, [{ type: "text", text: "I found wireless earbuds for you!" }]);
+});
+
+test("createPiAgentTools propagates ambient Context to tool execution", async () => {
+  interface DummyServiceShape {
+    readonly value: string;
+  }
+  class DummyService extends Context.Service<DummyService, DummyServiceShape>()("DummyService") {}
+
+  const serviceRequiringTool: AssistantToolLike<{ item: string }> = {
+    name: "service_tool",
+    description: "Uses a context service",
+    parameters: Schema.Struct({ item: Schema.String }),
+    run: (args, ctx) =>
+      Effect.gen(function* () {
+        const service = yield* DummyService;
+        return {
+          summary: `Service handled ${args.item} for ${ctx.userId}`,
+          resultString: JSON.stringify({ item: args.item, serviceValue: service.value }),
+        };
+      }),
+  };
+
+  const context = Context.empty().pipe(
+    Context.add(DummyService, DummyService.of({ value: "active-service" })),
+  );
+
+  const tools = createPiAgentTools([serviceRequiringTool], "user-ctx-1", context);
+  const tool = tools[0]!;
+  const result = await tool.execute("call-service-1", { item: "cart-data" });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.details.summary, "Service handled cart-data for user-ctx-1");
+  assert.deepEqual(JSON.parse(result.details.resultString), {
+    item: "cart-data",
+    serviceValue: "active-service",
+  });
 });

@@ -1,4 +1,4 @@
-import { Effect, type Schema } from "effect";
+import { Context, Effect, type Schema } from "effect";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { TSchema } from "@sinclair/typebox";
 import { schemaToJsonSchema } from "./shopping-assistant-tool-specs.js";
@@ -18,14 +18,19 @@ export interface AssistantToolLike<TArgs = any> {
   readonly description: string;
   readonly parameters: Schema.Schema<TArgs>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly run: (args: any, ctx: ToolContext) => Effect.Effect<ToolExecutionOutput, never, any>;
+  readonly run: (args: any, ctx: ToolContext) => Effect.Effect<ToolExecutionOutput, any, any>;
 }
 
 /**
  * Converts an Effect-based domain tool definition into a Pi Agent `AgentTool`.
- * Tool execution runs inside an Effect fiber via `Effect.runPromise` with the provided `userId`.
+ * Tool execution runs inside an Effect fiber via `Effect.runPromise` with the provided `userId`
+ * and ambient Golem context (including RpcClient).
  */
-export function toPiAgentTool(toolDef: AssistantToolLike, userId: string): AgentTool<TSchema> {
+export function toPiAgentTool(
+  toolDef: AssistantToolLike,
+  userId: string,
+  context?: Context.Context<never>,
+): AgentTool<TSchema> {
   const jsonSchema = schemaToJsonSchema(toolDef.parameters) as TSchema;
 
   return {
@@ -36,11 +41,33 @@ export function toPiAgentTool(toolDef: AssistantToolLike, userId: string): Agent
       .join(" "),
     description: toolDef.description,
     parameters: jsonSchema,
-    execute: async (_toolCallId: string, params: unknown): Promise<AgentToolResult> => {
+    execute: async (toolCallId: string, params: unknown): Promise<AgentToolResult> => {
+      const argsStr = JSON.stringify(params ?? {});
       try {
-        const output = await Effect.runPromise(
-          toolDef.run(params, { userId }) as Effect.Effect<ToolExecutionOutput>,
-        );
+        const pipeline = Effect.gen(function* () {
+          yield* Effect.logInfo(
+            `[ShoppingAssistant] Invoking tool '${toolDef.name}' (callId: ${toolCallId}) for user '${userId}' with args: ${argsStr}`,
+          );
+
+          const output = (yield* toolDef.run(params, { userId })) as ToolExecutionOutput;
+
+          const preview =
+            output.resultString.length > 500
+              ? `${output.resultString.slice(0, 500)}...`
+              : output.resultString;
+
+          yield* Effect.logInfo(
+            `[ShoppingAssistant] Tool '${toolDef.name}' completed (result length: ${output.resultString.length}): ${preview}`,
+          );
+
+          return output;
+        });
+
+        const effectToRun = pipeline.pipe(
+          Effect.provide(context ?? Context.empty()),
+        ) as Effect.Effect<ToolExecutionOutput, unknown, never>;
+        const output = await Effect.runPromise(effectToRun);
+
         return {
           content: [{ type: "text", text: output.resultString }],
           details: {
@@ -51,6 +78,15 @@ export function toPiAgentTool(toolDef: AssistantToolLike, userId: string): Agent
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         const errorJson = JSON.stringify({ error: errorMessage });
+
+        const warnEffect = Effect.logWarning(
+          `[ShoppingAssistant] Tool '${toolDef.name}' (callId: ${toolCallId}) failed: ${errorMessage}`,
+        );
+        const effectToRun = warnEffect.pipe(
+          Effect.provide(context ?? Context.empty()),
+        ) as Effect.Effect<void, unknown, never>;
+        await Effect.runPromise(effectToRun).catch(() => {});
+
         return {
           content: [{ type: "text", text: errorJson }],
           details: {
@@ -70,6 +106,7 @@ export function toPiAgentTool(toolDef: AssistantToolLike, userId: string): Agent
 export function createPiAgentTools(
   tools: readonly AssistantToolLike[],
   userId: string,
+  context?: Context.Context<never>,
 ): AgentTool<TSchema>[] {
-  return tools.map((t) => toPiAgentTool(t, userId));
+  return tools.map((t) => toPiAgentTool(t, userId, context));
 }

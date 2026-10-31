@@ -1,14 +1,5 @@
 import { Effect, Stream } from "effect";
 import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
-import {
-  createModels,
-  createProvider,
-  type Model,
-  type MutableModels,
-} from "@earendil-works/pi-ai";
-import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import { googleProvider } from "@earendil-works/pi-ai/providers/google";
-import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { extractLlmErrorMessage, fixMojibake, formatLlmErrorMessage } from "../../common/index.js";
 import {
   ChatChunk,
@@ -16,9 +7,10 @@ import {
   ChatMessageType,
   ToolCallRecord,
 } from "./shopping-assistant-schema.js";
+import { setupModelsAndProvider } from "./shopping-assistant-pi-provider.js";
 import { getShoppingAssistantPiTools } from "./shopping-assistant-tools.js";
 
-export { extractLlmErrorMessage, fixMojibake, formatLlmErrorMessage };
+export { extractLlmErrorMessage, fixMojibake, formatLlmErrorMessage, setupModelsAndProvider };
 
 export const SYSTEM_PROMPT = `You are a helpful, courteous, and efficient personal Shopping Assistant for our e-commerce store.
 You have access to tools to help the user:
@@ -50,87 +42,6 @@ export interface ChatTurnResult {
   readonly type: ChatMessageType;
 }
 
-/**
- * Resolves or creates a model and registered provider in Pi AI.
- */
-export function setupModelsAndProvider(options: {
-  apiKey: string;
-  model: string;
-  apiUrl?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-}): { models: MutableModels; resolvedModel: Model<any> } {
-  const { apiKey, model: modelName, apiUrl } = options;
-  const models = createModels();
-  const normalizedUrl = apiUrl ? apiUrl.replace(/\/chat\/completions$/, "").replace(/\/$/, "") : "";
-
-  // 1. OpenRouter
-  if (modelName.startsWith("openrouter/") || normalizedUrl.includes("openrouter.ai")) {
-    models.setProvider(openrouterProvider());
-    const strippedId = modelName.startsWith("openrouter/")
-      ? modelName.slice("openrouter/".length)
-      : modelName;
-    const found =
-      models.getModel("openrouter", strippedId) ?? models.getModel("openrouter", modelName);
-    if (found) {
-      return { models, resolvedModel: found };
-    }
-  }
-
-  // 2. Native Google (when not targeting an OpenAI-compatible /openai subpath)
-  if (
-    !normalizedUrl.includes("/openai") &&
-    (normalizedUrl.includes("generativelanguage.googleapis.com") || modelName.startsWith("gemini-"))
-  ) {
-    models.setProvider(googleProvider());
-    const found = models.getModel("google", modelName);
-    if (found) {
-      return { models, resolvedModel: found };
-    }
-  }
-
-  // 3. Fallback: Dynamic OpenAI-compatible provider (e.g. Gemini OpenAI endpoint or OpenRouter proxy)
-  const endpointUrl = normalizedUrl || "https://generativelanguage.googleapis.com/v1beta/openai";
-  const providerId = "dynamic-llm";
-  const dynamicModel: Model<"openai-completions"> = {
-    id: modelName,
-    name: modelName,
-    api: "openai-completions",
-    provider: providerId,
-    baseUrl: endpointUrl,
-    reasoning: false,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128000,
-    maxTokens: 4096,
-    type: "chat",
-    compat: {
-      supportsStore: false,
-      supportsDeveloperRole: false,
-      maxTokensField: "max_tokens",
-    },
-  };
-
-  const provider = createProvider({
-    id: providerId,
-    name: "Dynamic LLM Provider",
-    baseUrl: endpointUrl,
-    auth: {
-      apiKey: {
-        name: "API Key",
-        resolve: async () => ({
-          auth: { apiKey },
-          source: "API Key",
-        }),
-      },
-    },
-    models: [dynamicModel],
-    api: openAICompletionsApi(),
-  });
-
-  models.setProvider(provider);
-  return { models, resolvedModel: dynamicModel };
-}
-
 export function executeChatTurn(options: {
   readonly userId: string;
   readonly apiKey: string;
@@ -158,7 +69,8 @@ export function executeChatTurn(options: {
     }
 
     const { models, resolvedModel } = setupModelsAndProvider({ apiKey, model, apiUrl });
-    const tools = getShoppingAssistantPiTools(userId);
+    const context = yield* Effect.context();
+    const tools = getShoppingAssistantPiTools(userId, context);
 
     // Convert prior history to Pi AgentMessage[] format
     const initialMessages: AgentMessage[] = [];
