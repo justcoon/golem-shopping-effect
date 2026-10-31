@@ -95,6 +95,7 @@ export const useAssistantStore = defineStore("assistant", () => {
     streamingText.value = "";
 
     const usedToolNames: string[] = [];
+    const accumulatedToolCalls: ToolCallRecord[] = [];
     let streamHadError = false;
 
     if (stream) {
@@ -102,20 +103,34 @@ export const useAssistantStore = defineStore("assistant", () => {
       try {
         await streamChatWithAssistant(authStore.userId, content, (chunk: ChatChunk) => {
           if (chunk.type === "tool_start" && chunk.tool) {
+            const tcId = chunk.id ?? `${chunk.tool}-${Date.now()}`;
             usedToolNames.push(chunk.tool);
             activeTools.value.push({
-              id: `${chunk.tool}-${Date.now()}`,
+              id: tcId,
               name: chunk.tool,
               status: "running",
               summary: chunk.content,
             });
+            accumulatedToolCalls.push({
+              id: tcId,
+              toolName: chunk.tool,
+              arguments: chunk.arguments ?? "",
+              result: "",
+            });
           } else if (chunk.type === "tool_result" && chunk.tool) {
             const tool = activeTools.value.find(
-              (t) => t.name === chunk.tool && t.status === "running",
+              (t) =>
+                (chunk.id ? t.id === chunk.id : t.name === chunk.tool && t.status === "running"),
             );
             if (tool) {
               tool.status = "completed";
               tool.summary = chunk.content;
+            }
+            const tc = accumulatedToolCalls.find(
+              (t) => (chunk.id ? t.id === chunk.id : t.toolName === chunk.tool && !t.result),
+            );
+            if (tc) {
+              tc.result = chunk.result ?? chunk.content;
             }
           } else if (chunk.type === "text_delta") {
             streamingText.value += chunk.content;
@@ -129,6 +144,7 @@ export const useAssistantStore = defineStore("assistant", () => {
           const assistantMessage: ChatMessage = {
             role: "assistant",
             content: streamingText.value,
+            toolCalls: accumulatedToolCalls.length > 0 ? [...accumulatedToolCalls] : undefined,
             timestamp: new Date().toISOString(),
             type: streamHadError ? "error" : "ok",
           };

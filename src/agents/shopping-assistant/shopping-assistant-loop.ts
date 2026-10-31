@@ -122,11 +122,15 @@ export function executeChatTurn(options: {
     agent.subscribe((event) => {
       switch (event.type) {
         case "tool_execution_start": {
-          toolArgsById.set(event.toolCallId, event.args);
+          const argsString =
+            typeof event.args === "string" ? event.args : JSON.stringify(event.args ?? {});
+          toolArgsById.set(event.toolCallId, argsString);
           chunks.push({
             type: "tool_start",
             tool: event.toolName,
             content: `Executing ${event.toolName}...`,
+            id: event.toolCallId,
+            arguments: argsString,
           });
           break;
         }
@@ -139,12 +143,14 @@ export function executeChatTurn(options: {
             type: "tool_result",
             tool: event.toolName,
             content: summary,
+            id: event.toolCallId,
+            result: resultString,
           });
-          const rawArgs = toolArgsById.get(event.toolCallId);
+          const rawArgs = (toolArgsById.get(event.toolCallId) as string) ?? "";
           accumulatedToolCalls.push({
             id: event.toolCallId,
             toolName: event.toolName,
-            arguments: typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs ?? {}),
+            arguments: rawArgs,
             result: resultString,
           });
           break;

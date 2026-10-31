@@ -438,23 +438,6 @@ function renderMarkdown(md: string): string {
           </div>
         </div>
 
-        <!-- Tool Calls Display -->
-        <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="tool-calls-container">
-          <div v-for="tc in msg.toolCalls" :key="tc.id" class="tool-call-pill">
-            <span class="tool-icon">⚡</span>
-            <span class="tool-name">{{ formatToolName(tc.toolName) }}</span>
-            <details v-if="tc.arguments || tc.result" class="tool-details">
-              <summary>inspect</summary>
-              <div v-if="tc.arguments" class="tool-payload">
-                <strong>Args:</strong> <code>{{ tc.arguments }}</code>
-              </div>
-              <div v-if="tc.result" class="tool-payload">
-                <strong>Result:</strong> <code>{{ tc.result }}</code>
-              </div>
-            </details>
-          </div>
-        </div>
-
         <!-- Message Body -->
         <div
           v-if="msg.role === 'assistant'"
@@ -464,6 +447,31 @@ function renderMarkdown(md: string): string {
         <div v-else class="bubble-content">
           {{ msg.content }}
         </div>
+
+        <!-- Tool Calls Display (Collapsible, Rendered After Message) -->
+        <details v-if="msg.toolCalls && msg.toolCalls.length > 0" class="tool-calls-group">
+          <summary class="tool-calls-summary">
+            <span class="tool-summary-icon">⚡</span>
+            <span class="tool-summary-text">
+              {{ msg.toolCalls.length }} {{ msg.toolCalls.length === 1 ? "tool call" : "tool calls" }}
+            </span>
+          </summary>
+          <div class="tool-calls-container">
+            <div v-for="tc in msg.toolCalls" :key="tc.id" class="tool-call-pill">
+              <span class="tool-icon">⚡</span>
+              <span class="tool-name">{{ formatToolName(tc.toolName) }}</span>
+              <details v-if="tc.arguments || tc.result" class="tool-details">
+                <summary>inspect</summary>
+                <div v-if="tc.arguments" class="tool-payload">
+                  <strong>Args:</strong> <code>{{ tc.arguments }}</code>
+                </div>
+                <div v-if="tc.result" class="tool-payload">
+                  <strong>Result:</strong> <code>{{ tc.result }}</code>
+                </div>
+              </details>
+            </div>
+          </div>
+        </details>
       </div>
 
       <!-- Real-time Active Tools Indicator -->
@@ -956,11 +964,44 @@ function renderMarkdown(md: string): string {
 }
 
 /* Tool Calls */
+.tool-calls-group {
+  margin-top: 0.6rem;
+  margin-bottom: 0.2rem;
+}
+
+.tool-calls-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  user-select: none;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.2s ease;
+  width: fit-content;
+}
+
+.tool-calls-summary:hover {
+  background: rgba(139, 92, 246, 0.12);
+  color: #c084fc;
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.tool-summary-icon {
+  font-size: 0.75rem;
+}
+
 .tool-calls-container {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  margin-bottom: 0.6rem;
+  margin-top: 0.4rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid rgba(139, 92, 246, 0.2);
 }
 
 .tool-call-pill {

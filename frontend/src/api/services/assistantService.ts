@@ -26,6 +26,9 @@ export interface ChatChunk {
   type: "tool_start" | "tool_result" | "text_delta" | "done" | "error";
   content: string;
   tool?: string;
+  id?: string;
+  arguments?: string;
+  result?: string;
 }
 
 export interface ChatResponse {
