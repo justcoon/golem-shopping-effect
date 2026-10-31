@@ -42,9 +42,10 @@ order --> product : "RPC\nGet product info"
 order --> pricing : "RPC\nGet pricing info"
 product_search --> product : "RPC\nGet product info"
 
-' Shopping Assistant relationships
-assistant --> cart : "RPC\nGet order history"
-assistant --> order : "RPC\nGet orders"
+' Shopping Assistant relationships (Autonomous Tool Execution)
+assistant --> product_search : "RPC\nSearch products & prices"
+assistant --> cart : "RPC\nManage cart & checkout"
+assistant --> order : "RPC\nGet order details"
 
 ' Add notes
 note right of gateway
@@ -96,15 +97,22 @@ note right of product_search
 end note
 
 ' External Services
-[AI/LLM Service] as llm #D6EAF8
+[AI / LLM Service] as llm #D6EAF8
 
 ' Connect LLM to Shopping Assistant
 assistant --> llm : "API Call"
 
+note right of llm
+  <b>AI / LLM Providers</b>
+  - Google Gemini (native generative AI)
+  - OpenRouter / OpenAI-compatible APIs
+end note
+
 note right of assistant
   <b>Shopping Assistant Agent</b>
-  - Provides AI-powered shopping assistance
-  - Personalized product and brand recommendations based on shopping history
+  - Autonomous multi-turn tool calling
+  - Tools for search, cart, checkout & orders
+  - Synchronous and SSE streaming chat
   - State managed by Golem Cloud
 end note
 
