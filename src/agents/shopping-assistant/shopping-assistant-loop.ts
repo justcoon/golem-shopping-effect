@@ -13,9 +13,9 @@ import {
   ChatMessageType,
   ToolCallRecord,
 } from "./shopping-assistant-schema.js";
-import { summarizeToolResult, toolsMap, toolsOpenAiFormat } from "./shopping-assistant-tools.js";
+import { toolsMap, toolsOpenAiFormat } from "./shopping-assistant-tools.js";
 
-export { extractLlmErrorMessage, fixMojibake, formatLlmUserErrorMessage, summarizeToolResult };
+export { extractLlmErrorMessage, fixMojibake, formatLlmUserErrorMessage };
 
 const SYSTEM_PROMPT = `You are a helpful, courteous, and efficient personal Shopping Assistant for our e-commerce store.
 You have access to tools to help the user:
@@ -213,31 +213,20 @@ export function executeChatTurn(options: {
           });
 
           const toolDef = toolsMap.get(fnName);
-          let rawResult: unknown;
+          let toolSummary: string;
+          let toolResult: string;
+
           if (toolDef) {
-            rawResult = yield* toolDef.execute(parsedArgs, { userId }).pipe(
-              Effect.catch((err: unknown) =>
-                Effect.logError(
-                  `[ShoppingAssistant] Tool '${fnName}' failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
-                ).pipe(
-                  Effect.as({
-                    error: `Tool execution failed: ${err}`,
-                  }),
-                ),
-              ),
-            );
+            const output = yield* toolDef.run(parsedArgs, { userId });
+            toolSummary = output.summary;
+            toolResult = output.resultString;
           } else {
             yield* Effect.logWarning(
               `[ShoppingAssistant] Tool '${fnName}' not recognized in available tools map`,
             );
-            rawResult = { error: `Tool ${fnName} not recognized.` };
+            toolSummary = `Failed: Tool ${fnName} not recognized.`;
+            toolResult = safeJsonStringify({ error: `Tool ${fnName} not recognized.` });
           }
-
-          // Summarize directly from structured in-memory data without redundant JSON serialization/parsing
-          const toolSummary = summarizeToolResult(fnName, rawResult);
-          // Serialize once for LLM wire message and durable ToolCallRecord
-          const toolResult =
-            typeof rawResult === "string" ? rawResult : safeJsonStringify(rawResult);
 
           yield* Effect.logInfo(
             `[ShoppingAssistant] Tool '${fnName}' completed (result length: ${toolResult.length}): ${toolResult.length > 500 ? toolResult.slice(0, 500) + "..." : toolResult}`,

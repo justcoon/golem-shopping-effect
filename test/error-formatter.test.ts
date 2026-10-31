@@ -5,7 +5,10 @@ import {
   fixMojibake,
   formatLlmErrorMessage,
 } from "../src/common/error-formatter.js";
-import { summarizeToolResult } from "../src/agents/shopping-assistant/shopping-assistant-tool-specs.js";
+import {
+  getCartSpec,
+  searchProductsSpec,
+} from "../src/agents/shopping-assistant/shopping-assistant-tool-specs.js";
 
 describe("LLM Error Formatting", () => {
   it("parses array error format from Gemini HTTP 503 transparently", () => {
@@ -102,23 +105,18 @@ describe("LLM Error Formatting", () => {
       ],
       total: 429,
       currency: "USD",
+      previousOrderIds: [],
     };
 
-    // Works with structured in-memory object directly
-    const directSummary = summarizeToolResult("get_cart", cartObject);
-    assert.strictEqual(directSummary, "1 item (USD 429.00)");
-
-    // Also works with serialized JSON string
-    const jsonSummary = summarizeToolResult("get_cart", JSON.stringify(cartObject));
-    assert.strictEqual(jsonSummary, "1 item (USD 429.00)");
+    // Strongly-typed direct spec summarization without unknown or loss of types
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const specSummary = getCartSpec.summarize(cartObject as any);
+    assert.strictEqual(specSummary, "1 item (USD 429.00)");
   });
 
-  it("summarizes search_products tool result with structured array or raw JSON", () => {
-    const products = [{ id: "p1" }, { id: "p2" }, { id: "p3" }];
-    assert.strictEqual(summarizeToolResult("search_products", products), "Found 3 products");
-    assert.strictEqual(
-      summarizeToolResult("search_products", JSON.stringify(products)),
-      "Found 3 products",
-    );
+  it("summarizes search_products tool result with structured array", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const products: any = [{ id: "p1" }, { id: "p2" }, { id: "p3" }];
+    assert.strictEqual(searchProductsSpec.summarize(products), "Found 3 products");
   });
 });

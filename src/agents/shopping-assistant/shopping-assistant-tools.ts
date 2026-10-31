@@ -1,17 +1,49 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
+import { safeJsonStringify } from "../../common/index.js";
 import { CartAgentDefinition } from "../cart/index.js";
 import { OrderAgent } from "../order/index.js";
 import { ProductSearchAgent } from "../product-search/index.js";
 import {
+  AddToCartArgs,
+  addToCartSpec,
+  applySavedContactInfoSpec,
   AssistantToolSpec,
+  CheckoutCartArgs,
+  checkoutCartSpec,
+  clearCartSpec,
+  EmptyArgs,
+  getCartSpec,
+  GetOrderDetailsArgs,
+  getOrderDetailsSpec,
+  GetOrderHistoryArgs,
+  getOrderHistorySpec,
+  GetProductDetailsArgs,
+  getProductDetailsSpec,
+  getSavedContactInfoSpec,
+  RemoveFromCartArgs,
+  removeFromCartSpec,
+  schemaToJsonSchema,
+  SearchProductsArgs,
+  searchProductsSpec,
+  SetAddressArgs,
+  setBillingAddressSpec,
+  SetEmailArgs,
+  setEmailSpec,
+  setShippingAddressSpec,
   shoppingAssistantToolSpecs,
-  summarizeToolResult,
+  UpdateCartQuantityArgs,
+  updateCartQuantitySpec,
 } from "./shopping-assistant-tool-specs.js";
 
-export { summarizeToolResult };
+export { shoppingAssistantToolSpecs };
 
 export interface ToolContext {
   readonly userId: string;
+}
+
+export interface ToolExecutionOutput {
+  readonly summary: string;
+  readonly resultString: string;
 }
 
 function extractErrorMessage(err: unknown, fallback: string): string {
@@ -21,26 +53,83 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-export interface AssistantToolDefinition<T = unknown> extends AssistantToolSpec<T> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface AssistantToolDefinition<TResult = unknown, TArgs = any> extends AssistantToolSpec<
+  TResult,
+  TArgs
+> {
   readonly execute: (
-    args: Record<string, unknown>,
+    args: TArgs,
     ctx: ToolContext,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ) => Effect.Effect<T, never, any>;
+  ) => Effect.Effect<TResult, never, any>;
+  readonly run: (
+    rawArgs: unknown,
+    ctx: ToolContext,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ) => Effect.Effect<ToolExecutionOutput, never, any>;
 }
 
-type ToolExecutor = (
-  args: Record<string, unknown>,
-  ctx: ToolContext,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-) => Effect.Effect<unknown, never, any>;
+export function createAssistantTool<TResult, TArgs>(
+  spec: AssistantToolSpec<TResult, TArgs>,
+  execute: (
+    args: TArgs,
+    ctx: ToolContext,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ) => Effect.Effect<TResult, never, any>,
+): AssistantToolDefinition<TResult, TArgs> {
+  return {
+    ...spec,
+    execute,
+    run: (rawArgs: unknown, ctx: ToolContext) =>
+      Effect.gen(function* () {
+        // Decode and validate using the Effect Schema!
+        const decoded = yield* Schema.decodeUnknownEffect(spec.parameters)(rawArgs ?? {}).pipe(
+          Effect.catch((err: unknown) => {
+            const msg = `Invalid arguments for tool '${spec.name}': ${err instanceof Error ? err.message : String(err)}`;
+            return Effect.logWarning(`[ShoppingAssistant] ${msg}`).pipe(Effect.as(new Error(msg)));
+          }),
+        );
 
-const toolExecutors: Record<string, ToolExecutor> = {
-  search_products: (args: Record<string, unknown>, _ctx: ToolContext) =>
+        if (decoded instanceof Error) {
+          return {
+            summary: `Failed: ${decoded.message}`,
+            resultString: safeJsonStringify({ error: decoded.message }),
+          };
+        }
+
+        const result: TResult = yield* execute(decoded, ctx).pipe(
+          Effect.catch((err: unknown) =>
+            Effect.logError(
+              `[ShoppingAssistant] Tool '${spec.name}' failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+            ).pipe(
+              Effect.as({
+                error: `Tool execution failed: ${err instanceof Error ? err.message : String(err)}`,
+              } as TResult),
+            ),
+          ),
+        );
+
+        const summary =
+          result &&
+          typeof result === "object" &&
+          "error" in result &&
+          Boolean((result as { error: unknown }).error)
+            ? `Failed: ${String((result as { error: unknown }).error)}`
+            : spec.summarize(result);
+
+        const resultString = typeof result === "string" ? result : safeJsonStringify(result);
+
+        return { summary, resultString };
+      }),
+  };
+}
+
+export const searchProductsTool = createAssistantTool(
+  searchProductsSpec,
+  ({ query, currency }: SearchProductsArgs, _ctx: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        const query = String(args["query"] ?? "");
-        const currency = args["currency"] ? String(args["currency"]) : undefined;
         yield* Effect.logInfo(
           `[search_products] query="${query}" currency=${currency ?? "default"}`,
         );
@@ -52,12 +141,13 @@ const toolExecutors: Record<string, ToolExecutor> = {
         return results;
       }),
     ),
+);
 
-  get_product_details: (args: Record<string, unknown>, _ctx: ToolContext) =>
+export const getProductDetailsTool = createAssistantTool(
+  getProductDetailsSpec,
+  ({ productId, currency }: GetProductDetailsArgs, _ctx: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        const productId = String(args["productId"] ?? "");
-        const currency = args["currency"] ? String(args["currency"]) : undefined;
         yield* Effect.logInfo(
           `[get_product_details] productId="${productId}" currency=${currency ?? "default"}`,
         );
@@ -70,11 +160,14 @@ const toolExecutors: Record<string, ToolExecutor> = {
           return { error: `Product with ID ${productId} not found.` };
         }
         yield* Effect.logInfo(`[get_product_details] found product: "${results[0]?.name}"`);
-        return results[0];
+        return results[0]!;
       }),
     ),
+);
 
-  get_cart: (_args: Record<string, unknown>, { userId }: ToolContext) =>
+export const getCartTool = createAssistantTool(
+  getCartSpec,
+  (_args: EmptyArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
         yield* Effect.logInfo(`[get_cart] fetching cart for userId="${userId}"`);
@@ -93,17 +186,19 @@ const toolExecutors: Record<string, ToolExecutor> = {
         );
       }),
     ),
+);
 
-  add_to_cart: (args: Record<string, unknown>, { userId }: ToolContext) =>
+export const addToCartTool = createAssistantTool(
+  addToCartSpec,
+  ({ productId, quantity = 1 }: AddToCartArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        const productId = String(args["productId"] ?? "");
-        const quantity = Number(args["quantity"] ?? 1);
+        const qty = Math.max(1, Math.floor(quantity));
         yield* Effect.logInfo(
-          `[add_to_cart] adding productId="${productId}" qty=${quantity} for userId="${userId}"`,
+          `[add_to_cart] adding productId="${productId}" qty=${qty} for userId="${userId}"`,
         );
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
-        return yield* client.addItem({ productId, quantity }).pipe(
+        return yield* client.addItem({ productId, quantity: qty }).pipe(
           Effect.tap(() =>
             Effect.logInfo(`[add_to_cart] successfully added productId="${productId}"`),
           ),
@@ -120,19 +215,23 @@ const toolExecutors: Record<string, ToolExecutor> = {
         );
       }),
     ),
+);
 
-  update_cart_quantity: (args: Record<string, unknown>, { userId }: ToolContext) =>
+export const updateCartQuantityTool = createAssistantTool(
+  updateCartQuantitySpec,
+  ({ productId, quantity }: UpdateCartQuantityArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        const productId = String(args["productId"] ?? "");
-        const quantity = Number(args["quantity"] ?? 1);
+        const qty = Math.max(0, Math.floor(quantity));
         yield* Effect.logInfo(
-          `[update_cart_quantity] updating productId="${productId}" to qty=${quantity} for userId="${userId}"`,
+          `[update_cart_quantity] updating productId="${productId}" qty=${qty} for userId="${userId}"`,
         );
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
-        return yield* client.updateItemQuantity({ productId, quantity }).pipe(
+        return yield* client.updateItemQuantity({ productId, quantity: qty }).pipe(
           Effect.tap(() =>
-            Effect.logInfo(`[update_cart_quantity] successfully updated productId="${productId}"`),
+            Effect.logInfo(
+              `[update_cart_quantity] updated productId="${productId}" for userId="${userId}"`,
+            ),
           ),
           Effect.map((res) => ({ success: true, ...res })),
           Effect.catch((err: unknown) => {
@@ -147,18 +246,22 @@ const toolExecutors: Record<string, ToolExecutor> = {
         );
       }),
     ),
+);
 
-  remove_from_cart: (args: Record<string, unknown>, { userId }: ToolContext) =>
+export const removeFromCartTool = createAssistantTool(
+  removeFromCartSpec,
+  ({ productId }: RemoveFromCartArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        const productId = String(args["productId"] ?? "");
         yield* Effect.logInfo(
           `[remove_from_cart] removing productId="${productId}" for userId="${userId}"`,
         );
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client.removeItem({ productId }).pipe(
           Effect.tap(() =>
-            Effect.logInfo(`[remove_from_cart] successfully removed productId="${productId}"`),
+            Effect.logInfo(
+              `[remove_from_cart] removed productId="${productId}" for userId="${userId}"`,
+            ),
           ),
           Effect.map((res) => ({ success: true, ...res })),
           Effect.catch((err: unknown) => {
@@ -173,50 +276,64 @@ const toolExecutors: Record<string, ToolExecutor> = {
         );
       }),
     ),
+);
 
-  clear_cart: (_args: Record<string, unknown>, { userId }: ToolContext) =>
+export const clearCartTool = createAssistantTool(
+  clearCartSpec,
+  (_args: EmptyArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
         yield* Effect.logInfo(`[clear_cart] clearing cart for userId="${userId}"`);
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         yield* client.clear({}).pipe(Effect.orDie);
         yield* Effect.logInfo(`[clear_cart] cart cleared for userId="${userId}"`);
-        return { success: true, message: "Cart cleared successfully." };
+        return { success: true };
       }),
     ),
+);
 
-  get_saved_contact_info: (_args: Record<string, unknown>, { userId }: ToolContext) =>
+export const getSavedContactInfoTool = createAssistantTool(
+  getSavedContactInfoSpec,
+  (_args: EmptyArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(
-          `[get_saved_contact_info] fetching saved info for userId="${userId}"`,
-        );
+        yield* Effect.logInfo(`[get_saved_contact_info] fetching for userId="${userId}"`);
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
-        const info = yield* client.getSavedContactInfo({}).pipe(Effect.orDie);
-        yield* Effect.logInfo(
-          `[get_saved_contact_info] result for userId="${userId}": found=${info ? "true" : "false"}`,
+        const info = yield* client.getSavedContactInfo({}).pipe(
+          Effect.catch((err: unknown) => {
+            const msg = extractErrorMessage(err, "Failed to retrieve saved contact info.");
+            return Effect.logWarning(`[get_saved_contact_info] failed: ${msg}`).pipe(
+              Effect.as({ error: msg }),
+            );
+          }),
         );
+        if (info && "error" in info) {
+          return info;
+        }
         return (
           info ?? {
-            found: false,
-            message: "No saved contact info found from prior orders.",
+            shippingAddress: null,
+            billingAddress: null,
+            email: null,
+            sourceOrderId: null,
           }
         );
       }),
     ),
+);
 
-  apply_saved_contact_info: (_args: Record<string, unknown>, { userId }: ToolContext) =>
+export const applySavedContactInfoTool = createAssistantTool(
+  applySavedContactInfoSpec,
+  (_args: EmptyArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
         yield* Effect.logInfo(
-          `[apply_saved_contact_info] applying saved contact info for userId="${userId}"`,
+          `[apply_saved_contact_info] applying contact info for userId="${userId}"`,
         );
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client.applySavedContactInfo({}).pipe(
           Effect.tap(() =>
-            Effect.logInfo(
-              `[apply_saved_contact_info] successfully applied for userId="${userId}"`,
-            ),
+            Effect.logInfo(`[apply_saved_contact_info] applied for userId="${userId}"`),
           ),
           Effect.map((res) => ({ success: true, ...res })),
           Effect.catch((err: unknown) => {
@@ -231,8 +348,11 @@ const toolExecutors: Record<string, ToolExecutor> = {
         );
       }),
     ),
+);
 
-  set_shipping_address: (args: Record<string, unknown>, { userId }: ToolContext) =>
+export const setShippingAddressTool = createAssistantTool(
+  setShippingAddressSpec,
+  (args: SetAddressArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
         yield* Effect.logInfo(
@@ -241,14 +361,14 @@ const toolExecutors: Record<string, ToolExecutor> = {
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client
           .updateShippingAddress({
-            street: String(args["street"] ?? ""),
-            city: String(args["city"] ?? ""),
-            stateOrRegion: String(args["stateOrRegion"] ?? ""),
-            country: String(args["country"] ?? ""),
-            postalCode: String(args["postalCode"] ?? ""),
-            name: args["name"] ? String(args["name"]) : undefined,
-            phoneNumber: args["phoneNumber"] ? String(args["phoneNumber"]) : undefined,
-            email: args["email"] ? String(args["email"]) : undefined,
+            street: args.street,
+            city: args.city,
+            stateOrRegion: args.stateOrRegion ?? args.state ?? "",
+            country: args.country,
+            postalCode: args.postalCode,
+            name: args.name ?? args.fullName,
+            phoneNumber: args.phone ?? args.phoneNumber,
+            email: args.email,
           })
           .pipe(
             Effect.tap(() =>
@@ -269,8 +389,11 @@ const toolExecutors: Record<string, ToolExecutor> = {
           );
       }),
     ),
+);
 
-  set_billing_address: (args: Record<string, unknown>, { userId }: ToolContext) =>
+export const setBillingAddressTool = createAssistantTool(
+  setBillingAddressSpec,
+  (args: SetAddressArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
         yield* Effect.logInfo(
@@ -279,14 +402,14 @@ const toolExecutors: Record<string, ToolExecutor> = {
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client
           .updateBillingAddress({
-            street: String(args["street"] ?? ""),
-            city: String(args["city"] ?? ""),
-            stateOrRegion: String(args["stateOrRegion"] ?? ""),
-            country: String(args["country"] ?? ""),
-            postalCode: String(args["postalCode"] ?? ""),
-            name: args["name"] ? String(args["name"]) : undefined,
-            phoneNumber: args["phoneNumber"] ? String(args["phoneNumber"]) : undefined,
-            email: args["email"] ? String(args["email"]) : undefined,
+            street: args.street,
+            city: args.city,
+            stateOrRegion: args.stateOrRegion ?? args.state ?? "",
+            country: args.country,
+            postalCode: args.postalCode,
+            name: args.name ?? args.fullName,
+            phoneNumber: args.phone ?? args.phoneNumber,
+            email: args.email,
           })
           .pipe(
             Effect.tap(() =>
@@ -307,11 +430,13 @@ const toolExecutors: Record<string, ToolExecutor> = {
           );
       }),
     ),
+);
 
-  set_email: (args: Record<string, unknown>, { userId }: ToolContext) =>
+export const setEmailTool = createAssistantTool(
+  setEmailSpec,
+  ({ email }: SetEmailArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        const email = String(args["email"] ?? "");
         yield* Effect.logInfo(`[set_email] updating email="${email}" for userId="${userId}"`);
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client.updateEmail({ email }).pipe(
@@ -331,8 +456,11 @@ const toolExecutors: Record<string, ToolExecutor> = {
         );
       }),
     ),
+);
 
-  checkout_cart: (_args: Record<string, unknown>, { userId }: ToolContext) =>
+export const checkoutCartTool = createAssistantTool(
+  checkoutCartSpec,
+  (_args: CheckoutCartArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
         yield* Effect.logInfo(`[checkout_cart] initiating checkout for userId="${userId}"`);
@@ -367,11 +495,13 @@ const toolExecutors: Record<string, ToolExecutor> = {
         );
       }),
     ),
+);
 
-  get_order_history: (args: Record<string, unknown>, { userId }: ToolContext) =>
+export const getOrderHistoryTool = createAssistantTool(
+  getOrderHistorySpec,
+  ({ limit }: GetOrderHistoryArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        const limit = args["limit"] ? Number(args["limit"]) : undefined;
         yield* Effect.logInfo(
           `[get_order_history] fetching orders (limit=${limit ?? "default"}) for userId="${userId}"`,
         );
@@ -383,11 +513,13 @@ const toolExecutors: Record<string, ToolExecutor> = {
         return orders;
       }),
     ),
+);
 
-  get_order_details: (args: Record<string, unknown>, _ctx: ToolContext) =>
+export const getOrderDetailsTool = createAssistantTool(
+  getOrderDetailsSpec,
+  ({ orderId }: GetOrderDetailsArgs, _ctx: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        const orderId = String(args["orderId"] ?? "");
         yield* Effect.logInfo(`[get_order_details] fetching orderId="${orderId}"`);
         const client = yield* OrderAgent.client.get({ id: orderId }).pipe(Effect.orDie);
         const order = yield* client.get({}).pipe(Effect.orDie);
@@ -401,18 +533,28 @@ const toolExecutors: Record<string, ToolExecutor> = {
         return order ?? { error: `Order with ID ${orderId} not found.` };
       }),
     ),
-};
+);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyAssistantToolDefinition = AssistantToolDefinition<any>;
+export type AnyAssistantToolDefinition = AssistantToolDefinition<any, any>;
 
-export const shoppingAssistantTools: readonly AnyAssistantToolDefinition[] =
-  shoppingAssistantToolSpecs.map((spec) => ({
-    ...spec,
-    execute:
-      toolExecutors[spec.name] ??
-      (() => Effect.succeed({ error: `Tool ${spec.name} not implemented.` })),
-  }));
+export const shoppingAssistantTools: readonly AnyAssistantToolDefinition[] = [
+  searchProductsTool,
+  getProductDetailsTool,
+  getCartTool,
+  addToCartTool,
+  updateCartQuantityTool,
+  removeFromCartTool,
+  clearCartTool,
+  getSavedContactInfoTool,
+  applySavedContactInfoTool,
+  setShippingAddressTool,
+  setBillingAddressTool,
+  setEmailTool,
+  checkoutCartTool,
+  getOrderHistoryTool,
+  getOrderDetailsTool,
+];
 
 export const toolsMap = new Map<string, AnyAssistantToolDefinition>(
   shoppingAssistantTools.map((t) => [t.name, t]),
@@ -423,6 +565,6 @@ export const toolsOpenAiFormat = shoppingAssistantTools.map((t) => ({
   function: {
     name: t.name,
     description: t.description,
-    parameters: t.parameters,
+    parameters: schemaToJsonSchema(t.parameters),
   },
 }));
