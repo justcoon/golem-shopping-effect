@@ -130,14 +130,10 @@ export const searchProductsTool = createAssistantTool(
   ({ query, currency }: SearchProductsArgs, _ctx: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(
-          `[search_products] query="${query}" currency=${currency ?? "default"}`,
-        );
         const client = yield* ProductSearchAgent.client.newPhantom({}).pipe(Effect.orDie);
         const { value: results } = yield* client
           .searchWithPrices({ query, currency })
           .pipe(Effect.orDie);
-        yield* Effect.logInfo(`[search_products] returned ${results.length} products`);
         return results;
       }),
     ),
@@ -148,18 +144,13 @@ export const getProductDetailsTool = createAssistantTool(
   ({ productId, currency }: GetProductDetailsArgs, _ctx: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(
-          `[get_product_details] productId="${productId}" currency=${currency ?? "default"}`,
-        );
         const client = yield* ProductSearchAgent.client.newPhantom({}).pipe(Effect.orDie);
         const { value: results } = yield* client
           .getByIdsWithPrices({ ids: productId, currency })
           .pipe(Effect.orDie);
         if (results.length === 0) {
-          yield* Effect.logWarning(`[get_product_details] product not found: ${productId}`);
           return { error: `Product with ID ${productId} not found.` };
         }
-        yield* Effect.logInfo(`[get_product_details] found product: "${results[0]?.name}"`);
         return results[0]!;
       }),
     ),
@@ -170,12 +161,8 @@ export const getCartTool = createAssistantTool(
   (_args: EmptyArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(`[get_cart] fetching cart for userId="${userId}"`);
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         const cart = yield* client.get({}).pipe(Effect.orDie);
-        yield* Effect.logInfo(
-          `[get_cart] userId="${userId}" cart item count: ${cart?.items.length ?? 0}, total: ${cart?.total ?? 0}`,
-        );
         return (
           cart ?? {
             userId,
@@ -194,23 +181,15 @@ export const addToCartTool = createAssistantTool(
     Effect.scoped(
       Effect.gen(function* () {
         const qty = Math.max(1, Math.floor(quantity));
-        yield* Effect.logInfo(
-          `[add_to_cart] adding productId="${productId}" qty=${qty} for userId="${userId}"`,
-        );
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client.addItem({ productId, quantity: qty }).pipe(
-          Effect.tap(() =>
-            Effect.logInfo(`[add_to_cart] successfully added productId="${productId}"`),
-          ),
           Effect.map((res) => ({ success: true, ...res })),
           Effect.catch((err: unknown) => {
             const msg = extractErrorMessage(err, "Failed to add item to cart.");
-            return Effect.logWarning(`[add_to_cart] failed: ${msg}`).pipe(
-              Effect.as({
-                success: false,
-                error: msg,
-              }),
-            );
+            return Effect.succeed({
+              success: false,
+              error: msg,
+            });
           }),
         );
       }),
@@ -223,25 +202,15 @@ export const updateCartQuantityTool = createAssistantTool(
     Effect.scoped(
       Effect.gen(function* () {
         const qty = Math.max(0, Math.floor(quantity));
-        yield* Effect.logInfo(
-          `[update_cart_quantity] updating productId="${productId}" qty=${qty} for userId="${userId}"`,
-        );
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client.updateItemQuantity({ productId, quantity: qty }).pipe(
-          Effect.tap(() =>
-            Effect.logInfo(
-              `[update_cart_quantity] updated productId="${productId}" for userId="${userId}"`,
-            ),
-          ),
           Effect.map((res) => ({ success: true, ...res })),
           Effect.catch((err: unknown) => {
             const msg = extractErrorMessage(err, "Failed to update item quantity.");
-            return Effect.logWarning(`[update_cart_quantity] failed: ${msg}`).pipe(
-              Effect.as({
-                success: false,
-                error: msg,
-              }),
-            );
+            return Effect.succeed({
+              success: false,
+              error: msg,
+            });
           }),
         );
       }),
@@ -253,25 +222,15 @@ export const removeFromCartTool = createAssistantTool(
   ({ productId }: RemoveFromCartArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(
-          `[remove_from_cart] removing productId="${productId}" for userId="${userId}"`,
-        );
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client.removeItem({ productId }).pipe(
-          Effect.tap(() =>
-            Effect.logInfo(
-              `[remove_from_cart] removed productId="${productId}" for userId="${userId}"`,
-            ),
-          ),
           Effect.map((res) => ({ success: true, ...res })),
           Effect.catch((err: unknown) => {
             const msg = extractErrorMessage(err, "Failed to remove item from cart.");
-            return Effect.logWarning(`[remove_from_cart] failed: ${msg}`).pipe(
-              Effect.as({
-                success: false,
-                error: msg,
-              }),
-            );
+            return Effect.succeed({
+              success: false,
+              error: msg,
+            });
           }),
         );
       }),
@@ -283,10 +242,8 @@ export const clearCartTool = createAssistantTool(
   (_args: EmptyArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(`[clear_cart] clearing cart for userId="${userId}"`);
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         yield* client.clear({}).pipe(Effect.orDie);
-        yield* Effect.logInfo(`[clear_cart] cart cleared for userId="${userId}"`);
         return { success: true };
       }),
     ),
@@ -297,14 +254,11 @@ export const getSavedContactInfoTool = createAssistantTool(
   (_args: EmptyArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(`[get_saved_contact_info] fetching for userId="${userId}"`);
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         const info = yield* client.getSavedContactInfo({}).pipe(
           Effect.catch((err: unknown) => {
             const msg = extractErrorMessage(err, "Failed to retrieve saved contact info.");
-            return Effect.logWarning(`[get_saved_contact_info] failed: ${msg}`).pipe(
-              Effect.as({ error: msg }),
-            );
+            return Effect.succeed({ error: msg });
           }),
         );
         if (info && "error" in info) {
@@ -327,23 +281,15 @@ export const applySavedContactInfoTool = createAssistantTool(
   (_args: EmptyArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(
-          `[apply_saved_contact_info] applying contact info for userId="${userId}"`,
-        );
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client.applySavedContactInfo({}).pipe(
-          Effect.tap(() =>
-            Effect.logInfo(`[apply_saved_contact_info] applied for userId="${userId}"`),
-          ),
           Effect.map((res) => ({ success: true, ...res })),
           Effect.catch((err: unknown) => {
             const msg = extractErrorMessage(err, "Failed to apply saved contact info.");
-            return Effect.logWarning(`[apply_saved_contact_info] failed: ${msg}`).pipe(
-              Effect.as({
-                success: false,
-                error: msg,
-              }),
-            );
+            return Effect.succeed({
+              success: false,
+              error: msg,
+            });
           }),
         );
       }),
@@ -355,9 +301,6 @@ export const setShippingAddressTool = createAssistantTool(
   (args: SetAddressArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(
-          `[set_shipping_address] updating shipping address for userId="${userId}"`,
-        );
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client
           .updateShippingAddress({
@@ -371,20 +314,13 @@ export const setShippingAddressTool = createAssistantTool(
             email: args.email,
           })
           .pipe(
-            Effect.tap(() =>
-              Effect.logInfo(
-                `[set_shipping_address] shipping address updated for userId="${userId}"`,
-              ),
-            ),
             Effect.map((res) => ({ success: true, ...res })),
             Effect.catch((err: unknown) => {
               const msg = extractErrorMessage(err, "Failed to update shipping address.");
-              return Effect.logWarning(`[set_shipping_address] failed: ${msg}`).pipe(
-                Effect.as({
-                  success: false,
-                  error: msg,
-                }),
-              );
+              return Effect.succeed({
+                success: false,
+                error: msg,
+              });
             }),
           );
       }),
@@ -396,9 +332,6 @@ export const setBillingAddressTool = createAssistantTool(
   (args: SetAddressArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(
-          `[set_billing_address] updating billing address for userId="${userId}"`,
-        );
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client
           .updateBillingAddress({
@@ -412,20 +345,13 @@ export const setBillingAddressTool = createAssistantTool(
             email: args.email,
           })
           .pipe(
-            Effect.tap(() =>
-              Effect.logInfo(
-                `[set_billing_address] billing address updated for userId="${userId}"`,
-              ),
-            ),
             Effect.map((res) => ({ success: true, ...res })),
             Effect.catch((err: unknown) => {
               const msg = extractErrorMessage(err, "Failed to update billing address.");
-              return Effect.logWarning(`[set_billing_address] failed: ${msg}`).pipe(
-                Effect.as({
-                  success: false,
-                  error: msg,
-                }),
-              );
+              return Effect.succeed({
+                success: false,
+                error: msg,
+              });
             }),
           );
       }),
@@ -437,21 +363,15 @@ export const setEmailTool = createAssistantTool(
   ({ email }: SetEmailArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(`[set_email] updating email="${email}" for userId="${userId}"`);
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client.updateEmail({ email }).pipe(
-          Effect.tap(() =>
-            Effect.logInfo(`[set_email] email updated successfully for userId="${userId}"`),
-          ),
           Effect.map((res) => ({ success: true, ...res })),
           Effect.catch((err: unknown) => {
             const msg = extractErrorMessage(err, "Failed to update email.");
-            return Effect.logWarning(`[set_email] failed: ${msg}`).pipe(
-              Effect.as({
-                success: false,
-                error: msg,
-              }),
-            );
+            return Effect.succeed({
+              success: false,
+              error: msg,
+            });
           }),
         );
       }),
@@ -463,14 +383,8 @@ export const checkoutCartTool = createAssistantTool(
   (_args: CheckoutCartArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(`[checkout_cart] initiating checkout for userId="${userId}"`);
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
         return yield* client.checkout({}).pipe(
-          Effect.tap((confirmation) =>
-            Effect.logInfo(
-              `[checkout_cart] checkout completed! orderId="${confirmation.orderId}" userId="${confirmation.userId}"`,
-            ),
-          ),
           Effect.map((confirmation) => ({
             success: true,
             orderId: confirmation.orderId,
@@ -482,15 +396,11 @@ export const checkoutCartTool = createAssistantTool(
               typeof err === "object" && err !== null && "_tag" in err
                 ? String((err as { _tag: unknown })._tag)
                 : undefined;
-            return Effect.logWarning(
-              `[checkout_cart] checkout failed for userId="${userId}": ${msg} (tag: ${tag})`,
-            ).pipe(
-              Effect.as({
-                success: false,
-                error: msg,
-                tag,
-              }),
-            );
+            return Effect.succeed({
+              success: false,
+              error: msg,
+              tag,
+            });
           }),
         );
       }),
@@ -502,15 +412,8 @@ export const getOrderHistoryTool = createAssistantTool(
   ({ limit }: GetOrderHistoryArgs, { userId }: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(
-          `[get_order_history] fetching orders (limit=${limit ?? "default"}) for userId="${userId}"`,
-        );
         const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
-        const orders = yield* client.getOrderHistory({ limit }).pipe(Effect.orDie);
-        yield* Effect.logInfo(
-          `[get_order_history] found ${orders.length} orders for userId="${userId}"`,
-        );
-        return orders;
+        return yield* client.getOrderHistory({ limit }).pipe(Effect.orDie);
       }),
     ),
 );
@@ -520,16 +423,8 @@ export const getOrderDetailsTool = createAssistantTool(
   ({ orderId }: GetOrderDetailsArgs, _ctx: ToolContext) =>
     Effect.scoped(
       Effect.gen(function* () {
-        yield* Effect.logInfo(`[get_order_details] fetching orderId="${orderId}"`);
         const client = yield* OrderAgent.client.get({ id: orderId }).pipe(Effect.orDie);
         const order = yield* client.get({}).pipe(Effect.orDie);
-        if (order) {
-          yield* Effect.logInfo(
-            `[get_order_details] found orderId="${orderId}", status="${order.orderStatus}", total=${order.total}`,
-          );
-        } else {
-          yield* Effect.logWarning(`[get_order_details] orderId="${orderId}" not found`);
-        }
         return order ?? { error: `Order with ID ${orderId} not found.` };
       }),
     ),
