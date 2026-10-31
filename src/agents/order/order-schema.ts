@@ -1,5 +1,4 @@
 import { Schema } from "effect";
-import { Datetime } from "@golemcloud/effect-golem";
 import { Address } from "../../common/index.js";
 
 export const OrderStatus = Schema.Union([
@@ -95,7 +94,7 @@ export const CreateOrder = Schema.Struct({
   shippingAddress: Schema.optional(Address),
   total: Schema.Number,
   currency: Schema.String,
-  updatedAt: Datetime.Datetime,
+  updatedAt: Schema.DateTimeUtcFromString,
 });
 export type CreateOrder = typeof CreateOrder.Type;
 
@@ -109,8 +108,8 @@ export const Order = Schema.Struct({
   shippingAddress: Schema.optional(Address),
   total: Schema.Number,
   currency: Schema.String,
-  createdAt: Datetime.Datetime,
-  updatedAt: Datetime.Datetime,
+  createdAt: Schema.DateTimeUtcFromString,
+  updatedAt: Schema.DateTimeUtcFromString,
 });
 export type Order = typeof Order.Type;
 

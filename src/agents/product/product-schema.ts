@@ -1,5 +1,4 @@
 import { Schema } from "effect";
-import { Datetime } from "@golemcloud/effect-golem";
 
 export const Product = Schema.Struct({
   productId: Schema.String,
@@ -7,8 +6,8 @@ export const Product = Schema.Struct({
   brand: Schema.String,
   description: Schema.String,
   tags: Schema.Array(Schema.String),
-  createdAt: Datetime.Datetime,
-  updatedAt: Datetime.Datetime,
+  createdAt: Schema.DateTimeUtcFromString,
+  updatedAt: Schema.DateTimeUtcFromString,
 });
 
 export type Product = typeof Product.Type;

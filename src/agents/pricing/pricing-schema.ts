@@ -1,5 +1,4 @@
-import { Schema } from "effect";
-import { Datetime } from "@golemcloud/effect-golem";
+import { DateTime, Schema } from "effect";
 
 export const PricingItem = Schema.Struct({
   price: Schema.Number,
@@ -13,8 +12,8 @@ export const SalePricingItem = Schema.Struct({
   price: Schema.Number,
   currency: Schema.String,
   region: Schema.String,
-  start: Schema.optional(Datetime.Datetime),
-  end: Schema.optional(Datetime.Datetime),
+  start: Schema.optional(Schema.DateTimeUtcFromString),
+  end: Schema.optional(Schema.DateTimeUtcFromString),
 });
 
 export type SalePricingItem = typeof SalePricingItem.Type;
@@ -24,8 +23,8 @@ export const Pricing = Schema.Struct({
   msrpPrices: Schema.Array(PricingItem),
   listPrices: Schema.Array(PricingItem),
   salePrices: Schema.Array(SalePricingItem),
-  createdAt: Datetime.Datetime,
-  updatedAt: Datetime.Datetime,
+  createdAt: Schema.DateTimeUtcFromString,
+  updatedAt: Schema.DateTimeUtcFromString,
 });
 
 export type Pricing = typeof Pricing.Type;
@@ -44,8 +43,8 @@ export const mergePricingItems = (
   return Array.from(map.values());
 };
 
-const datetimeKey = (dt: Datetime.Datetime | undefined): string =>
-  dt ? `${dt.seconds.toString()}-${dt.nanoseconds.toString()}` : "none";
+const datetimeKey = (dt: DateTime.Utc | undefined): string =>
+  dt ? DateTime.formatIso(dt) : "none";
 
 export const mergeSalePricingItems = (
   first: readonly SalePricingItem[],

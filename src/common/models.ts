@@ -1,5 +1,4 @@
 import { DateTime, Effect, Schema } from "effect";
-import { Datetime } from "@golemcloud/effect-golem";
 
 export const Address = Schema.Struct({
   street: Schema.String,
@@ -25,10 +24,7 @@ export function arrayChunks<T>(array: readonly T[], chunkSize: number): T[][] {
   return chunks;
 }
 
-export const getCurrentDatetime: Effect.Effect<Datetime.Datetime> = Effect.gen(function* () {
-  const now = yield* DateTime.now;
-  return yield* Datetime.fromDateTime(now);
-}).pipe(Effect.orDie);
+export const getCurrentDatetime: Effect.Effect<DateTime.Utc> = DateTime.now;
 
 /**
  * Safely stringifies objects containing BigInt values (e.g. Datetime.Datetime seconds)

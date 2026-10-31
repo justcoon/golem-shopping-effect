@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
+import { DateTime } from "effect";
 import { ProductQueryMatcher } from "../src/agents/product-search/product-query-matcher.js";
 import { Product } from "../src/agents/product/product-schema.js";
 
@@ -9,8 +10,8 @@ const sampleProduct: Product = {
   brand: "Apple",
   description: "Latest smartphone with titanium design",
   tags: ["mobile", "apple", "flagship"],
-  createdAt: { seconds: 1700000000n, nanoseconds: 0 },
-  updatedAt: { seconds: 1700000000n, nanoseconds: 0 },
+  createdAt: DateTime.makeUnsafe(1700000000000),
+  updatedAt: DateTime.makeUnsafe(1700000000000),
 };
 
 describe("ProductQueryMatcher", () => {

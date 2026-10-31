@@ -3,7 +3,7 @@ import { computed, onMounted } from "vue";
 import { useOrderStore } from "@/stores/orderStore";
 import { useAuthStore } from "@/stores/authStore";
 import { getProductImage } from "@/api/services/productService";
-import { DateTime, dateTimeToDate } from "@/types/datetime.ts";
+import { DateTime, formatDate } from "@/types/datetime.ts";
 import { formatPrice } from "@/utils/currency";
 
 const orderStore = useOrderStore();
@@ -13,16 +13,6 @@ const currentUserId = authStore.userId;
 const orders = computed(() => orderStore.orders);
 const isLoading = computed(() => orderStore.isLoading);
 const error = computed(() => orderStore.error);
-
-function formatDate(d: DateTime) {
-  return dateTimeToDate(d).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function formatStatus(status: string) {
   return status

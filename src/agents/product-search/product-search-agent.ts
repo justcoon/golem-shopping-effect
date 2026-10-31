@@ -1,5 +1,5 @@
 import { Chunk, Effect, Schema, Stream } from "effect";
-import { Agents, Datetime, defineAgent, Http, method } from "@golemcloud/effect-golem";
+import { Agents, defineAgent, Http, method } from "@golemcloud/effect-golem";
 import { arrayChunks, CURRENCY, PRICING_REGION_DEFAULT } from "../../common/index.js";
 import { PricingAgent, PricingItem } from "../pricing/index.js";
 import { Product, ProductAgent } from "../product/index.js";
@@ -12,8 +12,8 @@ export const ProductWithPrice = Schema.Struct({
   description: Schema.String,
   tags: Schema.Array(Schema.String),
   price: Schema.NullOr(PricingItem),
-  createdAt: Datetime.Datetime,
-  updatedAt: Datetime.Datetime,
+  createdAt: Schema.DateTimeUtcFromString,
+  updatedAt: Schema.DateTimeUtcFromString,
 });
 export type ProductWithPrice = typeof ProductWithPrice.Type;
 
