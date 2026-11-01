@@ -4,11 +4,8 @@ import {
   extractLlmErrorMessage,
   fixMojibake,
   formatLlmErrorMessage,
+  formatUnknownError,
 } from "../src/common/error-formatter.js";
-import {
-  getCartSpec,
-  searchProductsSpec,
-} from "../src/agents/shopping-assistant/shopping-assistant-tool-specs.js";
 
 describe("LLM Error Formatting", () => {
   it("parses array error format from Gemini HTTP 503 transparently", () => {
@@ -102,31 +99,21 @@ describe("LLM Error Formatting", () => {
     assert.strictEqual(cleaned, "Apple Watch Series 9 by Apple - $429.00 (Quantity: 1)");
   });
 
-  it("summarizes get_cart tool result with structured object or raw JSON", () => {
-    const cartObject = {
-      userId: "u001",
-      items: [
-        {
-          productId: "ap005",
-          productName: "Apple Watch Series 9",
-          price: 429,
-          quantity: 1,
-        },
-      ],
-      total: 429,
-      currency: "USD",
-      previousOrderIds: [],
-    };
-
-    // Strongly-typed direct spec summarization without unknown or loss of types
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const specSummary = getCartSpec.summarize(cartObject as any);
-    assert.strictEqual(specSummary, "1 item (USD 429.00)");
-  });
-
-  it("summarizes search_products tool result with structured array", () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const products: any = [{ id: "p1" }, { id: "p2" }, { id: "p3" }];
-    assert.strictEqual(searchProductsSpec.summarize(products), "Found 3 products");
+  it("formats unknown errors without returning [object Object]", () => {
+    assert.strictEqual(formatUnknownError(new Error("standard error")), "standard error");
+    assert.strictEqual(
+      formatUnknownError({ message: "custom message error" }),
+      "custom message error",
+    );
+    assert.strictEqual(
+      formatUnknownError({ _tag: "RemoteResponseError", reason: "failed to encode input" }),
+      "RemoteResponseError: failed to encode input",
+    );
+    assert.strictEqual(
+      formatUnknownError({ tag: "protocol-error", val: "connection lost" }),
+      "protocol-error: connection lost",
+    );
+    assert.strictEqual(formatUnknownError({ arbitrary: 123 }), '{"arbitrary":123}');
+    assert.strictEqual(formatUnknownError("plain string error"), "plain string error");
   });
 });

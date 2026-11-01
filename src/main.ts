@@ -4,6 +4,7 @@ import "./agents/order/index.js";
 import "./agents/cart/index.js";
 import "./agents/product-search/index.js";
 import "./agents/shopping-assistant/index.js";
+import "./web.js";
 
 export { PricingAgent } from "./agents/pricing/index.js";
 export { ProductAgent } from "./agents/product/index.js";

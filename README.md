@@ -27,6 +27,8 @@ This is an e-commerce application built with an agent-based architecture on [Gol
 
 ### Key Features
 - **RESTful HTTP API**: All agents expose HTTP endpoints declared in `golem.yaml` and mapped directly to agent methods.
+- **Built-in Web Interface**: Zero-setup web client served directly by Golem at `/assistant` with real-time SSE streaming, collapsible tool inspection, and product recommendations.
+- **Storefront Frontend**: Vue 3 and Vite e-commerce storefront for product browsing, cart, and checkout.
 - **Durable Execution & State**: State persistence, retries, and crash recovery are managed automatically by Golem Cloud.
 - **Agent-to-Agent RPC**: Zero-boilerplate, type-safe RPC between agents with ambient context propagation.
 
@@ -91,6 +93,22 @@ From the `data/` directory:
 ```bash
 HOST=http://localhost:9006 API_HOST=localhost:9006 drill --benchmark import.yaml --stats
 ```
+
+### 5. Launch the Web Assistant Interface
+The web client is hosted directly by Golem (no separate frontend server required). Open your browser and navigate to:
+```
+http://localhost:9006/assistant
+```
+Supports live SSE streaming, collapsible tool execution details, prompt reuse (`🔄`), error retry, dynamic product recommendations, and multi-user switching.
+
+### 6. Storefront Frontend (Vue 3)
+A full e-commerce storefront for product browsing, cart management, and checkout is available in the [`frontend/`](./frontend) directory:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+The application will be available at `http://localhost:3000`. See the [Frontend README](./frontend/README.md) for more details.
 
 ---
 

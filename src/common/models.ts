@@ -37,3 +37,21 @@ export function safeJsonStringify(data: unknown, space?: string | number): strin
     space,
   );
 }
+
+/**
+ * Converts an Effect Schema into standard JSON Schema format for function-calling LLMs.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function schemaToJsonSchema(schema: Schema.Schema<any>): Record<string, unknown> {
+  const std = Schema.toStandardJSONSchemaV1(schema);
+  const doc = std["~standard"].jsonSchema.input({ target: "draft-07" }) as Record<string, unknown>;
+  if (doc && doc.type === "object") {
+    return doc;
+  }
+  // For empty structs (Schema.Struct({})), Standard Schema emits `{ not: { type: 'null' } }`,
+  // but OpenAI/Gemini tool calling APIs strictly require `{ type: 'object', properties: {} }`.
+  return {
+    type: "object",
+    properties: {},
+  };
+}

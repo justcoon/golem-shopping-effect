@@ -51,7 +51,7 @@ export const ShoppingAssistantDefinition = defineAgent({
       input: {},
       success: RecommendedItems,
       readOnly: true,
-      http: [Http.get("/recommended-items")],
+      http: [Http.get("/recommended-items"), Http.get("/recommendations")],
       description: "Get recommended items state",
     }),
     recommendItems: method({

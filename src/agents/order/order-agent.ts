@@ -120,7 +120,10 @@ export const OrderAgent = defineAgent({
       success: Schema.NullOr(Order),
       readOnly: true,
       http: [Http.get("/")],
-      description: "Get order",
+      description:
+        "Retrieve comprehensive details for an order including items, delivery address, and status.",
+      promptHint:
+        "Call this when the user asks for details, status, tracking, or items in a specific order.",
     }),
   },
 }).implement({

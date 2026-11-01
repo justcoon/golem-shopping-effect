@@ -30,6 +30,12 @@ components:
   golem-shopping-effect:effect-main:
     dir: ""
     templates: effect
+agents:
+  Web:
+    files:
+    - sourcePath: ./web/
+      targetPath: /web/
+      permissions: read-only
 secretDefaults:
   local:
     llm:
@@ -49,6 +55,7 @@ httpApi:
         ShoppingAssistantAgent: {}
         CartAgent: {}
         OrderAgent: {}
+        Web: {}
 #    - subdomain: golem-shopping-effect
 #      agents:
 #        PricingAgent: {}
@@ -57,3 +64,4 @@ httpApi:
 #        ShoppingAssistantAgent: {}
 #        CartAgent: {}
 #        OrderAgent: {}
+#        Web: {}

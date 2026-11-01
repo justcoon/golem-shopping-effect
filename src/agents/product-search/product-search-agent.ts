@@ -176,21 +176,34 @@ export const ProductSearchAgent = defineAgent({
     }),
     getByIdsWithPrices: method({
       input: {
-        ids: Schema.String,
-        currency: Schema.optional(Schema.String),
+        ids: Schema.String.annotate({
+          description: "Comma-separated list of product IDs, e.g. 'ap001,sm002'",
+        }),
+        currency: Schema.optional(Schema.String).annotate({
+          description: "Optional currency code for converted prices, e.g. 'USD' or 'EUR'",
+        }),
       },
       success: Schema.Array(ProductWithPrice),
       http: [Http.get("/with-prices?ids={ids}&currency={currency}")],
-      description: "Get products by ids with active price",
+      description: "Get detailed product information with current pricing by product ID(s).",
+      promptHint:
+        "Call this to fetch specifications, descriptions, brands, tags, and prices for specific products.",
     }),
     searchWithPrices: method({
       input: {
-        query: Schema.String,
-        currency: Schema.optional(Schema.String),
+        query: Schema.String.annotate({
+          description: "Search query keyword, e.g. 'earbuds', 'brand:Apple', or 'tag:flagship'",
+        }),
+        currency: Schema.optional(Schema.String).annotate({
+          description: "Optional currency code for pricing, e.g. 'USD' or 'EUR'",
+        }),
       },
       success: Schema.Array(ProductWithPrice),
       http: [Http.get("/search-with-prices?query={query}&currency={currency}")],
-      description: "Search products with active price",
+      description:
+        "Search product catalog with keyword, brand, or tag filters including active prices.",
+      promptHint:
+        "Call this when the user is searching for products, asking recommendations, or looking for item options.",
     }),
   },
 }).implement({
