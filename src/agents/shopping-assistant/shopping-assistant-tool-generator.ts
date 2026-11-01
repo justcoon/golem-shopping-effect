@@ -117,11 +117,11 @@ export function createToolFromAgentMethod<
 
   const defaultSummary = (val: unknown): string => {
     if (val && typeof val === "object") {
+      if ("summary" in val && typeof (val as { summary: unknown }).summary === "string") {
+        return (val as { summary: string }).summary;
+      }
       if ("message" in val && typeof (val as { message: unknown }).message === "string") {
         return (val as { message: string }).message;
-      }
-      if ("total" in val && "items" in val) {
-        return `Updated cart: ${(val as { items: unknown[] }).items.length} items, total $${(val as { total: number }).total}`;
       }
     }
     return `Completed ${name}`;
@@ -162,6 +162,22 @@ export function createToolFromAgentMethod<
       );
     });
 
+  const prepareMethodArgs = (rawMethodArgs: any) => {
+    const mapped = options?.mapInput ? options.mapInput(rawMethodArgs) : rawMethodArgs;
+    if (!mapped || typeof mapped !== "object" || Array.isArray(mapped)) {
+      return mapped ?? {};
+    }
+    const result: Record<string, any> = { ...mapped };
+    if (methodSpec.input) {
+      for (const key of Object.keys(methodSpec.input)) {
+        if (!(key in result)) {
+          result[key] = undefined;
+        }
+      }
+    }
+    return result;
+  };
+
   return {
     name,
     description,
@@ -182,8 +198,8 @@ export function createToolFromAgentMethod<
       Effect.gen(function* () {
         const client = yield* resolveClient(ctx, args);
         const methodFn = client[methodName] as (input: any) => Effect.Effect<any, any, any>;
-        const methodArgs = options?.mapInput ? options.mapInput(args as any) : args;
-        const res: Result.Result<any, any> = yield* methodFn(methodArgs ?? {}).pipe(
+        const methodArgs = prepareMethodArgs(args);
+        const res: Result.Result<any, any> = yield* methodFn(methodArgs).pipe(
           Effect.result,
           Effect.catchDefect((defect) =>
             Effect.succeed(
@@ -223,7 +239,7 @@ export function createToolFromAgentMethod<
 
         const client = yield* resolveClient(ctx, decoded);
         const methodFn = client[methodName] as (input: any) => Effect.Effect<any, any, any>;
-        const methodArgs = options?.mapInput ? options.mapInput(decoded as any) : decoded;
+        const methodArgs = prepareMethodArgs(decoded);
 
         const result: Result.Result<any, any> = yield* methodFn(methodArgs).pipe(
           Effect.result,
