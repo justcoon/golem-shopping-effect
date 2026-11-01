@@ -4,6 +4,7 @@ import { CartAgentDefinition } from "../cart/index.js";
 import { OrderAgent } from "../order/index.js";
 import { ProductSearchAgent } from "../product-search/index.js";
 import { createPiAgentTools } from "./shopping-assistant-pi-tools.js";
+import { createToolFromAgentMethod } from "./shopping-assistant-tool-generator.js";
 import {
   AddToCartArgs,
   addToCartSpec,
@@ -11,7 +12,6 @@ import {
   AssistantToolSpec,
   CheckoutCartArgs,
   checkoutCartSpec,
-  clearCartSpec,
   EmptyArgs,
   getCartSpec,
   GetOrderDetailsArgs,
@@ -26,11 +26,6 @@ import {
   schemaToJsonSchema,
   SearchProductsArgs,
   searchProductsSpec,
-  SetAddressArgs,
-  setBillingAddressSpec,
-  SetEmailArgs,
-  setEmailSpec,
-  setShippingAddressSpec,
   shoppingAssistantToolSpecs,
   UpdateCartQuantityArgs,
   updateCartQuantitySpec,
@@ -238,17 +233,11 @@ export const removeFromCartTool = createAssistantTool(
     ),
 );
 
-export const clearCartTool = createAssistantTool(
-  clearCartSpec,
-  (_args: EmptyArgs, { userId }: ToolContext) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
-        yield* client.clear({}).pipe(Effect.orDie);
-        return { success: true };
-      }),
-    ),
-);
+export const clearCartTool = createToolFromAgentMethod(CartAgentDefinition, "clear", {
+  toolName: "clear_cart",
+  resolveId: ({ userId }: ToolContext) => ({ id: userId }),
+  formatSummary: () => "Cleared all items from cart",
+});
 
 export const getSavedContactInfoTool = createAssistantTool(
   getSavedContactInfoSpec,
@@ -297,87 +286,31 @@ export const applySavedContactInfoTool = createAssistantTool(
     ),
 );
 
-export const setShippingAddressTool = createAssistantTool(
-  setShippingAddressSpec,
-  (args: SetAddressArgs, { userId }: ToolContext) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
-        return yield* client
-          .updateShippingAddress({
-            street: args.street,
-            city: args.city,
-            stateOrRegion: args.stateOrRegion ?? args.state ?? "",
-            country: args.country,
-            postalCode: args.postalCode,
-            name: args.name ?? args.fullName,
-            phoneNumber: args.phone ?? args.phoneNumber,
-            email: args.email,
-          })
-          .pipe(
-            Effect.map((res) => ({ success: true, ...res })),
-            Effect.catch((err: unknown) => {
-              const msg = extractErrorMessage(err, "Failed to update shipping address.");
-              return Effect.succeed({
-                success: false,
-                error: msg,
-              });
-            }),
-          );
-      }),
-    ),
+export const setShippingAddressTool = createToolFromAgentMethod(
+  CartAgentDefinition,
+  "updateShippingAddress",
+  {
+    toolName: "set_shipping_address",
+    resolveId: ({ userId }: ToolContext) => ({ id: userId }),
+    formatSummary: () => "Updated shipping address",
+  },
 );
 
-export const setBillingAddressTool = createAssistantTool(
-  setBillingAddressSpec,
-  (args: SetAddressArgs, { userId }: ToolContext) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
-        return yield* client
-          .updateBillingAddress({
-            street: args.street,
-            city: args.city,
-            stateOrRegion: args.stateOrRegion ?? args.state ?? "",
-            country: args.country,
-            postalCode: args.postalCode,
-            name: args.name ?? args.fullName,
-            phoneNumber: args.phone ?? args.phoneNumber,
-            email: args.email,
-          })
-          .pipe(
-            Effect.map((res) => ({ success: true, ...res })),
-            Effect.catch((err: unknown) => {
-              const msg = extractErrorMessage(err, "Failed to update billing address.");
-              return Effect.succeed({
-                success: false,
-                error: msg,
-              });
-            }),
-          );
-      }),
-    ),
+export const setBillingAddressTool = createToolFromAgentMethod(
+  CartAgentDefinition,
+  "updateBillingAddress",
+  {
+    toolName: "set_billing_address",
+    resolveId: ({ userId }: ToolContext) => ({ id: userId }),
+    formatSummary: () => "Updated billing address",
+  },
 );
 
-export const setEmailTool = createAssistantTool(
-  setEmailSpec,
-  ({ email }: SetEmailArgs, { userId }: ToolContext) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const client = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
-        return yield* client.updateEmail({ email }).pipe(
-          Effect.map((res) => ({ success: true, ...res })),
-          Effect.catch((err: unknown) => {
-            const msg = extractErrorMessage(err, "Failed to update email.");
-            return Effect.succeed({
-              success: false,
-              error: msg,
-            });
-          }),
-        );
-      }),
-    ),
-);
+export const setEmailTool = createToolFromAgentMethod(CartAgentDefinition, "updateEmail", {
+  toolName: "set_email",
+  resolveId: ({ userId }: ToolContext) => ({ id: userId }),
+  formatSummary: (_, args) => `Updated email to ${args.email}`,
+});
 
 export const checkoutCartTool = createAssistantTool(
   checkoutCartSpec,
