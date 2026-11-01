@@ -397,4 +397,55 @@ describe("Tool Generator (shopping-assistant-tool-generator)", () => {
     assert.strictEqual(parsed._tag, "Success");
     assert.deepStrictEqual(parsed.value, { items: ["prod-1"], total: 99 });
   });
+
+  it("populates missing optional method input arguments with undefined to avoid Golem encode SchemaError", async () => {
+    let capturedMethodArgs: any;
+    const searchAgent = {
+      name: "ProductSearchAgent",
+      mode: "ephemeral",
+      methods: {
+        searchWithPrices: {
+          description: "Search products with prices",
+          input: {
+            query: Schema.String,
+            currency: Schema.optional(Schema.String),
+          },
+          success: Schema.Array(Schema.String),
+          error: Schema.Never,
+        },
+      },
+      client: {
+        newPhantom: () =>
+          Effect.succeed({
+            searchWithPrices: (args: any) => {
+              capturedMethodArgs = args;
+              return Effect.succeed(["item-1"]);
+            },
+          }),
+      },
+    };
+
+    const tool = createToolFromAgentMethod(searchAgent, "searchWithPrices", {
+      toolName: "search_products",
+    });
+
+    // Caller passes only { query: "PlayStation 5" }, omitting optional currency
+    const output = await Effect.runPromise(
+      tool.run({ query: "PlayStation 5" }, { userId: "u001" }) as Effect.Effect<
+        { summary: string; resultString: string },
+        never,
+        never
+      >,
+    );
+
+    assert.ok(capturedMethodArgs, "method should be called");
+    assert.strictEqual(capturedMethodArgs.query, "PlayStation 5");
+    assert.strictEqual(
+      "currency" in capturedMethodArgs,
+      true,
+      "currency key should exist in arguments",
+    );
+    assert.strictEqual(capturedMethodArgs.currency, undefined);
+    assert.strictEqual(output.summary, "Completed search_products");
+  });
 });
