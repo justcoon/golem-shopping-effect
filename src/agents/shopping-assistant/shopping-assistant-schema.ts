@@ -46,20 +46,40 @@ export const ChatMessage = Schema.Struct({
 });
 export type ChatMessage = typeof ChatMessage.Type;
 
-export const ChatChunkType = Schema.Union([
-  Schema.Literal("tool_start"),
-  Schema.Literal("tool_result"),
-  Schema.Literal("text_delta"),
-  Schema.Literal("done"),
-  Schema.Literal("error"),
-]);
-export type ChatChunkType = typeof ChatChunkType.Type;
+export const TextDeltaChunk = Schema.TaggedStruct("text_delta", {
+  content: Schema.String,
+});
+export type TextDeltaChunk = typeof TextDeltaChunk.Type;
 
-export const ChatChunk = Schema.Struct({
-  type: ChatChunkType,
+export const ToolStartChunk = Schema.TaggedStruct("tool_start", {
   content: Schema.String,
   toolCall: ToolCallRecord,
 });
+export type ToolStartChunk = typeof ToolStartChunk.Type;
+
+export const ToolResultChunk = Schema.TaggedStruct("tool_result", {
+  content: Schema.String,
+  toolCall: ToolCallRecord,
+});
+export type ToolResultChunk = typeof ToolResultChunk.Type;
+
+export const DoneChunk = Schema.TaggedStruct("done", {
+  content: Schema.String,
+});
+export type DoneChunk = typeof DoneChunk.Type;
+
+export const ErrorChunk = Schema.TaggedStruct("error", {
+  content: Schema.String,
+});
+export type ErrorChunk = typeof ErrorChunk.Type;
+
+export const ChatChunk = Schema.Union([
+  TextDeltaChunk,
+  ToolStartChunk,
+  ToolResultChunk,
+  DoneChunk,
+  ErrorChunk,
+]);
 export type ChatChunk = typeof ChatChunk.Type;
 
 export const ChatRequest = Schema.Struct({

@@ -42,21 +42,24 @@ export interface ChatTurnResult {
   readonly type: ChatMessageType;
 }
 
-function makeChunk(
-  type: ChatChunk["type"],
-  content = "",
-  toolCall: Partial<ToolCallRecord> = {},
-): ChatChunk {
-  return {
-    type,
-    content,
-    toolCall: {
-      id: toolCall.id ?? "",
-      toolName: toolCall.toolName ?? "",
-      arguments: toolCall.arguments ?? "",
-      result: toolCall.result ?? "",
-    },
-  };
+function textDeltaChunk(content: string): ChatChunk {
+  return { _tag: "text_delta", content };
+}
+
+function toolStartChunk(content: string, toolCall: ToolCallRecord): ChatChunk {
+  return { _tag: "tool_start", content, toolCall };
+}
+
+function toolResultChunk(content: string, toolCall: ToolCallRecord): ChatChunk {
+  return { _tag: "tool_result", content, toolCall };
+}
+
+function doneChunk(content = ""): ChatChunk {
+  return { _tag: "done", content };
+}
+
+function errorChunk(content: string): ChatChunk {
+  return { _tag: "error", content };
 }
 
 export function executeChatTurn(options: {
@@ -76,7 +79,7 @@ export function executeChatTurn(options: {
       return {
         reply: msg,
         toolCallsUsed: [],
-        chunks: [makeChunk("text_delta", msg), makeChunk("error", msg), makeChunk("done", "")],
+        chunks: [textDeltaChunk(msg), errorChunk(msg), doneChunk("")],
         type: "error" as ChatMessageType,
       };
     }
@@ -121,12 +124,8 @@ export function executeChatTurn(options: {
     let isError = false;
     let errorMessage = "";
 
-    const pushChunk = (
-      type: ChatChunk["type"],
-      content = "",
-      toolCall: Partial<ToolCallRecord> = {},
-    ) => {
-      chunks.push(makeChunk(type, content, toolCall));
+    const pushChunk = (chunk: ChatChunk) => {
+      chunks.push(chunk);
     };
 
     const agent = new Agent({
@@ -146,11 +145,14 @@ export function executeChatTurn(options: {
           const argsString =
             typeof event.args === "string" ? event.args : JSON.stringify(event.args ?? {});
           toolArgsById.set(event.toolCallId, argsString);
-          pushChunk("tool_start", `Executing ${event.toolName}...`, {
-            id: event.toolCallId,
-            toolName: event.toolName,
-            arguments: argsString,
-          });
+          pushChunk(
+            toolStartChunk(`Executing ${event.toolName}...`, {
+              id: event.toolCallId,
+              toolName: event.toolName,
+              arguments: argsString,
+              result: "",
+            }),
+          );
           break;
         }
         case "tool_execution_end": {
@@ -159,24 +161,20 @@ export function executeChatTurn(options: {
           const resultString =
             event.result?.details?.resultString ?? JSON.stringify(event.result ?? {});
           const rawArgs = (toolArgsById.get(event.toolCallId) as string) ?? "";
-          pushChunk("tool_result", summary, {
+          const toolCall: ToolCallRecord = {
             id: event.toolCallId,
             toolName: event.toolName,
             arguments: rawArgs,
             result: resultString,
-          });
-          accumulatedToolCalls.push({
-            id: event.toolCallId,
-            toolName: event.toolName,
-            arguments: rawArgs,
-            result: resultString,
-          });
+          };
+          pushChunk(toolResultChunk(summary, toolCall));
+          accumulatedToolCalls.push(toolCall);
           break;
         }
         case "message_update": {
           const update = event.assistantMessageEvent;
           if (update.type === "text_delta" && update.delta) {
-            pushChunk("text_delta", update.delta);
+            pushChunk(textDeltaChunk(update.delta));
           }
           break;
         }
@@ -205,8 +203,8 @@ export function executeChatTurn(options: {
         cleaned && !cleaned.startsWith("HTTP 400")
           ? `AI service error: ${cleaned}`
           : `AI service error: ${raw}`;
-      pushChunk("text_delta", finalReply);
-      pushChunk("error", finalReply);
+      pushChunk(textDeltaChunk(finalReply));
+      pushChunk(errorChunk(finalReply));
     } else {
       const lastMsg = agent.state.messages[agent.state.messages.length - 1];
       if (lastMsg && lastMsg.role === "assistant") {
@@ -217,12 +215,12 @@ export function executeChatTurn(options: {
         }
       }
       finalReply = fixMojibake(finalReply);
-      if (chunks.length === 0 || !chunks.some((c) => c.type === "text_delta")) {
-        pushChunk("text_delta", finalReply);
+      if (chunks.length === 0 || !chunks.some((c) => c._tag === "text_delta")) {
+        pushChunk(textDeltaChunk(finalReply));
       }
     }
 
-    pushChunk("done", "");
+    pushChunk(doneChunk(""));
 
     return {
       reply: finalReply,
