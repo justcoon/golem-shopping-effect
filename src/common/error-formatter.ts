@@ -57,3 +57,31 @@ export function fixMojibake(text: string): string {
     .replace(/\u2013/g, "-")
     .replace(/\u2014/g, " - ");
 }
+
+/**
+ * Formats an unknown error or rejection into a clear, descriptive string,
+ * avoiding '[object Object]' for objects, typed failures, or Effect errors.
+ */
+export function formatUnknownError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message || String(err);
+  }
+  if (err && typeof err === "object") {
+    const obj = err as Record<string, unknown>;
+    if (typeof obj._tag === "string") {
+      const detail = obj.reason ?? obj.message ?? obj.cause ?? obj.val;
+      return detail ? `${obj._tag}: ${formatUnknownError(detail)}` : obj._tag;
+    }
+    if (typeof obj.tag === "string" && "val" in obj) {
+      return `${obj.tag}: ${formatUnknownError(obj.val)}`;
+    }
+    if (typeof obj.message === "string" && obj.message) return obj.message;
+    if (typeof obj.reason === "string" && obj.reason) return obj.reason;
+    try {
+      return JSON.stringify(err);
+    } catch {
+      // Fall through to String(err) if circular
+    }
+  }
+  return String(err);
+}

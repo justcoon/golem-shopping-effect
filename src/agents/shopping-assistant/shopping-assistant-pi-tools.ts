@@ -1,7 +1,7 @@
 import { Context, Effect, type Schema } from "effect";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { TSchema } from "@sinclair/typebox";
-import { schemaToJsonSchema } from "../../common/index.js";
+import { formatUnknownError, schemaToJsonSchema } from "../../common/index.js";
 
 export interface ToolContext {
   readonly userId: string;
@@ -71,7 +71,7 @@ export function toPiAgentTool(
           },
         };
       } catch (err: unknown) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
+        const errorMessage = formatUnknownError(err);
         const errorJson = JSON.stringify({ error: errorMessage });
 
         const warnEffect = Effect.logWarning(

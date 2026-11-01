@@ -4,6 +4,7 @@ import {
   extractLlmErrorMessage,
   fixMojibake,
   formatLlmErrorMessage,
+  formatUnknownError,
 } from "../src/common/error-formatter.js";
 
 describe("LLM Error Formatting", () => {
@@ -96,5 +97,23 @@ describe("LLM Error Formatting", () => {
     const corrupted = "Apple Watch Series 9 by Apple â€“ $429.00 (Quantity: 1)";
     const cleaned = fixMojibake(corrupted);
     assert.strictEqual(cleaned, "Apple Watch Series 9 by Apple - $429.00 (Quantity: 1)");
+  });
+
+  it("formats unknown errors without returning [object Object]", () => {
+    assert.strictEqual(formatUnknownError(new Error("standard error")), "standard error");
+    assert.strictEqual(
+      formatUnknownError({ message: "custom message error" }),
+      "custom message error",
+    );
+    assert.strictEqual(
+      formatUnknownError({ _tag: "RemoteResponseError", reason: "failed to encode input" }),
+      "RemoteResponseError: failed to encode input",
+    );
+    assert.strictEqual(
+      formatUnknownError({ tag: "protocol-error", val: "connection lost" }),
+      "protocol-error: connection lost",
+    );
+    assert.strictEqual(formatUnknownError({ arbitrary: 123 }), '{"arbitrary":123}');
+    assert.strictEqual(formatUnknownError("plain string error"), "plain string error");
   });
 });

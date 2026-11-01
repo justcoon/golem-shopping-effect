@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Effect, Result, Schema } from "effect";
-import { safeJsonStringify } from "../../common/index.js";
+import { formatUnknownError, safeJsonStringify } from "../../common/index.js";
 import type {
   AssistantToolDefinition,
   ToolContext,
@@ -12,6 +12,7 @@ export interface AgentWithMethods<
   TId = any,
 > {
   readonly name: string;
+  readonly mode?: string;
   readonly methods: TMethods;
   readonly client: {
     readonly get?: (id: TId) => Effect.Effect<any, any, any>;
@@ -69,15 +70,7 @@ export function camelToSnake(str: string): string {
 }
 
 function extractFailureMessage(failure: unknown): string {
-  if (typeof failure === "object" && failure !== null) {
-    if ("message" in failure && typeof (failure as { message: unknown }).message === "string") {
-      return (failure as { message: string }).message;
-    }
-    if ("_tag" in failure && typeof (failure as { _tag: unknown })._tag === "string") {
-      return (failure as { _tag: string })._tag;
-    }
-  }
-  return String(failure);
+  return formatUnknownError(failure);
 }
 
 /**
@@ -136,15 +129,34 @@ export function createToolFromAgentMethod<
 
   const resolveClient = (ctx: ToolContext, args: any) =>
     Effect.gen(function* () {
+      // 1. If an explicit resolveId is specified, always use client.get(id)
+      if (options?.resolveId) {
+        const id = options.resolveId(ctx, args);
+        if (typeof agent.client.get === "function") {
+          return yield* (agent.client.get(id) as Effect.Effect<any, never, any>).pipe(Effect.orDie);
+        }
+      }
+
+      // 2. If the agent is ephemeral, instantiate via newPhantom
+      if (agent.mode === "ephemeral" && typeof agent.client.newPhantom === "function") {
+        return yield* (agent.client.newPhantom({}) as Effect.Effect<any, never, any>).pipe(
+          Effect.orDie,
+        );
+      }
+
+      // 3. For durable agents without explicit resolveId, use client.get()
+      if (typeof agent.client.get === "function") {
+        const id = options?.resolveId ? options.resolveId(ctx, args) : undefined;
+        return yield* (agent.client.get(id) as Effect.Effect<any, never, any>).pipe(Effect.orDie);
+      }
+
+      // 4. Fallback to newPhantom
       if (typeof agent.client.newPhantom === "function") {
         return yield* (agent.client.newPhantom({}) as Effect.Effect<any, never, any>).pipe(
           Effect.orDie,
         );
       }
-      if (typeof agent.client.get === "function") {
-        const id = options?.resolveId ? options.resolveId(ctx, args) : undefined;
-        return yield* (agent.client.get(id) as Effect.Effect<any, never, any>).pipe(Effect.orDie);
-      }
+
       return yield* Effect.die(
         new Error(`Agent '${agent.name}' client has neither 'get' nor 'newPhantom' methods`),
       );

@@ -342,4 +342,59 @@ describe("Tool Generator (shopping-assistant-tool-generator)", () => {
     assert.strictEqual(tools[0]!.name, "empty_cart");
     assert.strictEqual(tools[1]!.name, "update_email");
   });
+
+  it("prioritizes client.get(id) over client.newPhantom when resolveId is provided", async () => {
+    let getCalledWithId: unknown = undefined;
+    let newPhantomCalled = false;
+
+    // Like real Golem agent definitions, both get and newPhantom exist on client
+    const durableAgentWithBoth = {
+      name: "CartAgent",
+      mode: "durable",
+      methods: {
+        get: {
+          description: "Get cart",
+          input: {},
+          success: Schema.Struct({ items: Schema.Array(Schema.String), total: Schema.Number }),
+          error: Schema.Never,
+        },
+      },
+      client: {
+        get: (id: { id: string }) => {
+          getCalledWithId = id;
+          return Effect.succeed({
+            get: () => Effect.succeed({ items: ["prod-1"], total: 99 }),
+          });
+        },
+        newPhantom: () => {
+          newPhantomCalled = true;
+          return Effect.fail(new Error("newPhantom should not be called for durable agent!"));
+        },
+      },
+    };
+
+    const tool = createToolFromAgentMethod(durableAgentWithBoth, "get", {
+      toolName: "get_cart",
+      resolveId: ({ userId }) => ({ id: userId }),
+      formatSummary: (result) =>
+        Result.isSuccess(result)
+          ? `Cart has ${result.success.items.length} items (total: $${result.success.total})`
+          : "Failed",
+    });
+
+    const output = await Effect.runPromise(
+      tool.run({}, { userId: "u001" }) as Effect.Effect<
+        { summary: string; resultString: string },
+        never,
+        never
+      >,
+    );
+
+    assert.strictEqual(newPhantomCalled, false, "newPhantom should not be called");
+    assert.deepStrictEqual(getCalledWithId, { id: "u001" });
+    assert.strictEqual(output.summary, "Cart has 1 items (total: $99)");
+    const parsed = JSON.parse(output.resultString);
+    assert.strictEqual(parsed._tag, "Success");
+    assert.deepStrictEqual(parsed.value, { items: ["prod-1"], total: 99 });
+  });
 });
