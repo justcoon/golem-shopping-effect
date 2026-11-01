@@ -80,7 +80,7 @@ describe("Tool Generator (shopping-assistant-tool-generator)", () => {
     assert.strictEqual(tool.description, "Custom description for emptying cart");
   });
 
-  it("executes successfully and returns Result.Success with formatted summary", async () => {
+  it("executes successfully and receives Result.Success in formatSummary", async () => {
     const mockAgent = {
       name: "MockAgent",
       methods: {
@@ -111,7 +111,10 @@ describe("Tool Generator (shopping-assistant-tool-generator)", () => {
 
     const tool = createToolFromAgentMethod(mockAgent, "updateCity", {
       resolveId: (ctx) => ({ id: ctx.userId }),
-      formatSummary: (res: { city: string }) => `City set to ${res.city}`,
+      formatSummary: (result, args) =>
+        Result.isSuccess(result)
+          ? `City set to ${result.success.city} for user input ${args.city}`
+          : "Update failed",
     });
 
     const output = await Effect.runPromise(
@@ -122,13 +125,13 @@ describe("Tool Generator (shopping-assistant-tool-generator)", () => {
       >,
     );
 
-    assert.strictEqual(output.summary, "City set to Prague");
+    assert.strictEqual(output.summary, "City set to Prague for user input Prague");
     const parsed = JSON.parse(output.resultString);
     assert.strictEqual(parsed._tag, "Success");
     assert.deepStrictEqual(parsed.value, { city: "Prague", updated: true });
   });
 
-  it("captures typed method failure as Result.Failure", async () => {
+  it("captures typed method failure as Result.Failure and formats summary", async () => {
     const mockAgent = {
       name: "MockAgent",
       methods: {
@@ -153,6 +156,10 @@ describe("Tool Generator (shopping-assistant-tool-generator)", () => {
 
     const tool = createToolFromAgentMethod(mockAgent, "checkout", {
       resolveId: (ctx) => ({ id: ctx.userId }),
+      formatSummary: (result) =>
+        Result.isSuccess(result)
+          ? `Checked out: ${result.success.id}`
+          : `Custom error: ${result.failure.message}`,
     });
 
     const output = await Effect.runPromise(
@@ -163,10 +170,102 @@ describe("Tool Generator (shopping-assistant-tool-generator)", () => {
       >,
     );
 
-    assert.strictEqual(output.summary, "Failed: Cannot checkout an empty cart.");
+    assert.strictEqual(output.summary, "Custom error: Cannot checkout an empty cart.");
     const parsed = JSON.parse(output.resultString);
     assert.strictEqual(parsed._tag, "Failure");
     assert.strictEqual(parsed.failure.message, "Cannot checkout an empty cart.");
+  });
+
+  it("supports ephemeral agent clients via newPhantom", async () => {
+    let newPhantomCalled = false;
+    const ephemeralAgent = {
+      name: "EphemeralSearchAgent",
+      methods: {
+        search: {
+          description: "Search items",
+          input: { query: Schema.String },
+          success: Schema.Array(Schema.String),
+          error: Schema.Never,
+        },
+      },
+      client: {
+        newPhantom: () => {
+          newPhantomCalled = true;
+          return Effect.succeed({
+            search: ({ query }: { query: string }) =>
+              Effect.succeed([`match-1-for-${query}`, `match-2-for-${query}`]),
+          });
+        },
+      },
+    };
+
+    const tool = createToolFromAgentMethod(ephemeralAgent, "search", {
+      toolName: "search_items",
+      formatSummary: (result, args) =>
+        Result.isSuccess(result)
+          ? `Found ${result.success.length} results for '${args.query}'`
+          : "Search failed",
+    });
+
+    const output = await Effect.runPromise(
+      tool.run({ query: "wireless" }, { userId: "user-100" }) as Effect.Effect<
+        { summary: string; resultString: string },
+        never,
+        never
+      >,
+    );
+
+    assert.strictEqual(newPhantomCalled, true);
+    assert.strictEqual(output.summary, "Found 2 results for 'wireless'");
+    const parsed = JSON.parse(output.resultString);
+    assert.strictEqual(parsed._tag, "Success");
+    assert.deepStrictEqual(parsed.value, ["match-1-for-wireless", "match-2-for-wireless"]);
+  });
+
+  it("supports extraParameters, argument-derived ID resolution, and mapInput", async () => {
+    let resolvedId: string | undefined;
+    const keyedOrderAgent = {
+      name: "OrderAgent",
+      methods: {
+        get: {
+          description: "Get order by instance id",
+          input: {},
+          success: Schema.Struct({ orderId: Schema.String, status: Schema.String }),
+          error: Schema.Never,
+        },
+      },
+      client: {
+        get: (id: { id: string }) => {
+          resolvedId = id.id;
+          return Effect.succeed({
+            get: () => Effect.succeed({ orderId: id.id, status: "SHIPPED" }),
+          });
+        },
+      },
+    };
+
+    const tool = createToolFromAgentMethod(keyedOrderAgent, "get", {
+      toolName: "get_order_details",
+      extraParameters: {
+        orderId: Schema.String.annotate({ description: "Target order ID" }),
+      },
+      resolveId: (_ctx, args) => ({ id: args.orderId }),
+      formatSummary: (result) =>
+        Result.isSuccess(result)
+          ? `Order ${result.success.orderId} is ${result.success.status}`
+          : "Not found",
+    });
+
+    const output = await Effect.runPromise(
+      tool.run({ orderId: "ord-999" }, { userId: "user-100" }) as Effect.Effect<
+        { summary: string; resultString: string },
+        never,
+        never
+      >,
+    );
+
+    assert.strictEqual(resolvedId, "ord-999");
+    assert.strictEqual(output.summary, "Order ord-999 is SHIPPED");
   });
 
   it("handles input validation errors gracefully with Result.Failure", async () => {

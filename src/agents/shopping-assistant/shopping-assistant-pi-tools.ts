@@ -1,7 +1,7 @@
 import { Context, Effect, type Schema } from "effect";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { TSchema } from "@sinclair/typebox";
-import { schemaToJsonSchema } from "./shopping-assistant-tool-specs.js";
+import { schemaToJsonSchema } from "../../common/index.js";
 
 export interface ToolContext {
   readonly userId: string;
