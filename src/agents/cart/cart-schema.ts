@@ -1,5 +1,4 @@
 import { Schema } from "effect";
-import { Datetime } from "@golemcloud/effect-golem";
 import { Address } from "../../common/index.js";
 
 export const ProductNotFoundError = Schema.Struct({
@@ -102,7 +101,7 @@ export const Cart = Schema.Struct({
   total: Schema.Number,
   currency: Schema.String,
   previousOrderIds: Schema.Array(Schema.String),
-  updatedAt: Datetime.Datetime,
+  updatedAt: Schema.DateTimeUtcFromString,
 });
 export type Cart = typeof Cart.Type;
 

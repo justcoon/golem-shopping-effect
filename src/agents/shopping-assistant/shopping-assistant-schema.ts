@@ -1,5 +1,4 @@
 import { Schema } from "effect";
-import { Datetime } from "@golemcloud/effect-golem";
 
 export const RECOMMENDATION_INPUT_COUNT = 100;
 export const RECOMMENDATION_PRODUCT_COUNT = 4;
@@ -8,8 +7,8 @@ export const RECOMMENDATION_BRAND_COUNT = 3;
 export const RecommendedItems = Schema.Struct({
   productIds: Schema.Array(Schema.String),
   productBrands: Schema.Array(Schema.String),
-  createdAt: Datetime.Datetime,
-  updatedAt: Datetime.Datetime,
+  createdAt: Schema.DateTimeUtcFromString,
+  updatedAt: Schema.DateTimeUtcFromString,
 });
 
 export type RecommendedItems = typeof RecommendedItems.Type;
@@ -47,20 +46,40 @@ export const ChatMessage = Schema.Struct({
 });
 export type ChatMessage = typeof ChatMessage.Type;
 
-export const ChatChunkType = Schema.Union([
-  Schema.Literal("tool_start"),
-  Schema.Literal("tool_result"),
-  Schema.Literal("text_delta"),
-  Schema.Literal("done"),
-  Schema.Literal("error"),
-]);
-export type ChatChunkType = typeof ChatChunkType.Type;
-
-export const ChatChunk = Schema.Struct({
-  type: ChatChunkType,
+export const TextDeltaChunk = Schema.TaggedStruct("text_delta", {
   content: Schema.String,
-  tool: Schema.String,
 });
+export type TextDeltaChunk = typeof TextDeltaChunk.Type;
+
+export const ToolStartChunk = Schema.TaggedStruct("tool_start", {
+  content: Schema.String,
+  toolCall: ToolCallRecord,
+});
+export type ToolStartChunk = typeof ToolStartChunk.Type;
+
+export const ToolResultChunk = Schema.TaggedStruct("tool_result", {
+  content: Schema.String,
+  toolCall: ToolCallRecord,
+});
+export type ToolResultChunk = typeof ToolResultChunk.Type;
+
+export const DoneChunk = Schema.TaggedStruct("done", {
+  content: Schema.String,
+});
+export type DoneChunk = typeof DoneChunk.Type;
+
+export const ErrorChunk = Schema.TaggedStruct("error", {
+  content: Schema.String,
+});
+export type ErrorChunk = typeof ErrorChunk.Type;
+
+export const ChatChunk = Schema.Union([
+  TextDeltaChunk,
+  ToolStartChunk,
+  ToolResultChunk,
+  DoneChunk,
+  ErrorChunk,
+]);
 export type ChatChunk = typeof ChatChunk.Type;
 
 export const ChatRequest = Schema.Struct({

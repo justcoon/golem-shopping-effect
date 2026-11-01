@@ -95,33 +95,70 @@ export const useAssistantStore = defineStore("assistant", () => {
     streamingText.value = "";
 
     const usedToolNames: string[] = [];
+    const accumulatedToolCalls: ToolCallRecord[] = [];
     let streamHadError = false;
 
     if (stream) {
       isStreaming.value = true;
       try {
         await streamChatWithAssistant(authStore.userId, content, (chunk: ChatChunk) => {
-          if (chunk.type === "tool_start" && chunk.tool) {
-            usedToolNames.push(chunk.tool);
-            activeTools.value.push({
-              id: `${chunk.tool}-${Date.now()}`,
-              name: chunk.tool,
-              status: "running",
-              summary: chunk.content,
-            });
-          } else if (chunk.type === "tool_result" && chunk.tool) {
-            const tool = activeTools.value.find(
-              (t) => t.name === chunk.tool && t.status === "running",
-            );
-            if (tool) {
-              tool.status = "completed";
-              tool.summary = chunk.content;
+          switch (chunk._tag) {
+            case "tool_start": {
+              const tc = chunk.toolCall;
+              const finalId = tc.id || `${tc.toolName}-${Date.now()}`;
+              usedToolNames.push(tc.toolName);
+              activeTools.value.push({
+                id: finalId,
+                name: tc.toolName,
+                status: "running",
+                summary: chunk.content,
+              });
+              accumulatedToolCalls.push({
+                id: finalId,
+                toolName: tc.toolName,
+                arguments: tc.arguments ?? "",
+                result: "",
+              });
+              break;
             }
-          } else if (chunk.type === "text_delta") {
-            streamingText.value += chunk.content;
-          } else if (chunk.type === "error") {
-            streamHadError = true;
-            error.value = new Error(chunk.content);
+            case "tool_result": {
+              const tc = chunk.toolCall;
+              const finalId = tc.id;
+              const tool = activeTools.value.find(
+                (t) =>
+                  (finalId ? t.id === finalId : t.name === tc.toolName && t.status === "running"),
+              );
+              if (tool) {
+                tool.status = "completed";
+                tool.summary = chunk.content;
+              }
+              const existingTc = accumulatedToolCalls.find(
+                (t) => (finalId ? t.id === finalId : t.toolName === tc.toolName && !t.result),
+              );
+              if (existingTc) {
+                existingTc.result = tc.result || chunk.content;
+                if (tc.arguments && !existingTc.arguments) {
+                  existingTc.arguments = tc.arguments;
+                }
+              } else {
+                accumulatedToolCalls.push({
+                  id: finalId || `${tc.toolName}-${Date.now()}`,
+                  toolName: tc.toolName,
+                  arguments: tc.arguments ?? "",
+                  result: tc.result || chunk.content,
+                });
+              }
+              break;
+            }
+            case "text_delta":
+              streamingText.value += chunk.content;
+              break;
+            case "error":
+              streamHadError = true;
+              error.value = new Error(chunk.content);
+              break;
+            case "done":
+              break;
           }
         });
 
@@ -129,6 +166,7 @@ export const useAssistantStore = defineStore("assistant", () => {
           const assistantMessage: ChatMessage = {
             role: "assistant",
             content: streamingText.value,
+            toolCalls: accumulatedToolCalls.length > 0 ? [...accumulatedToolCalls] : undefined,
             timestamp: new Date().toISOString(),
             type: streamHadError ? "error" : "ok",
           };

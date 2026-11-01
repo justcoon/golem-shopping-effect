@@ -42,6 +42,26 @@ export interface ChatTurnResult {
   readonly type: ChatMessageType;
 }
 
+function textDeltaChunk(content: string): ChatChunk {
+  return { _tag: "text_delta", content };
+}
+
+function toolStartChunk(content: string, toolCall: ToolCallRecord): ChatChunk {
+  return { _tag: "tool_start", content, toolCall };
+}
+
+function toolResultChunk(content: string, toolCall: ToolCallRecord): ChatChunk {
+  return { _tag: "tool_result", content, toolCall };
+}
+
+function doneChunk(content = ""): ChatChunk {
+  return { _tag: "done", content };
+}
+
+function errorChunk(content: string): ChatChunk {
+  return { _tag: "error", content };
+}
+
 export function executeChatTurn(options: {
   readonly userId: string;
   readonly apiKey: string;
@@ -59,11 +79,7 @@ export function executeChatTurn(options: {
       return {
         reply: msg,
         toolCallsUsed: [],
-        chunks: [
-          { type: "text_delta" as const, content: msg, tool: "" },
-          { type: "error" as const, content: msg, tool: "" },
-          { type: "done" as const, content: "", tool: "" },
-        ],
+        chunks: [textDeltaChunk(msg), errorChunk(msg), doneChunk("")],
         type: "error" as ChatMessageType,
       };
     }
@@ -108,6 +124,10 @@ export function executeChatTurn(options: {
     let isError = false;
     let errorMessage = "";
 
+    const pushChunk = (chunk: ChatChunk) => {
+      chunks.push(chunk);
+    };
+
     const agent = new Agent({
       initialState: {
         systemPrompt: SYSTEM_PROMPT,
@@ -122,12 +142,17 @@ export function executeChatTurn(options: {
     agent.subscribe((event) => {
       switch (event.type) {
         case "tool_execution_start": {
-          toolArgsById.set(event.toolCallId, event.args);
-          chunks.push({
-            type: "tool_start",
-            tool: event.toolName,
-            content: `Executing ${event.toolName}...`,
-          });
+          const argsString =
+            typeof event.args === "string" ? event.args : JSON.stringify(event.args ?? {});
+          toolArgsById.set(event.toolCallId, argsString);
+          pushChunk(
+            toolStartChunk(`Executing ${event.toolName}...`, {
+              id: event.toolCallId,
+              toolName: event.toolName,
+              arguments: argsString,
+              result: "",
+            }),
+          );
           break;
         }
         case "tool_execution_end": {
@@ -135,28 +160,21 @@ export function executeChatTurn(options: {
             event.result?.details?.summary ?? (event.isError ? "Failed" : "Completed");
           const resultString =
             event.result?.details?.resultString ?? JSON.stringify(event.result ?? {});
-          chunks.push({
-            type: "tool_result",
-            tool: event.toolName,
-            content: summary,
-          });
-          const rawArgs = toolArgsById.get(event.toolCallId);
-          accumulatedToolCalls.push({
+          const rawArgs = (toolArgsById.get(event.toolCallId) as string) ?? "";
+          const toolCall: ToolCallRecord = {
             id: event.toolCallId,
             toolName: event.toolName,
-            arguments: typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs ?? {}),
+            arguments: rawArgs,
             result: resultString,
-          });
+          };
+          pushChunk(toolResultChunk(summary, toolCall));
+          accumulatedToolCalls.push(toolCall);
           break;
         }
         case "message_update": {
           const update = event.assistantMessageEvent;
           if (update.type === "text_delta" && update.delta) {
-            chunks.push({
-              type: "text_delta",
-              content: update.delta,
-              tool: "",
-            });
+            pushChunk(textDeltaChunk(update.delta));
           }
           break;
         }
@@ -185,8 +203,8 @@ export function executeChatTurn(options: {
         cleaned && !cleaned.startsWith("HTTP 400")
           ? `AI service error: ${cleaned}`
           : `AI service error: ${raw}`;
-      chunks.push({ type: "text_delta", content: finalReply, tool: "" });
-      chunks.push({ type: "error", content: finalReply, tool: "" });
+      pushChunk(textDeltaChunk(finalReply));
+      pushChunk(errorChunk(finalReply));
     } else {
       const lastMsg = agent.state.messages[agent.state.messages.length - 1];
       if (lastMsg && lastMsg.role === "assistant") {
@@ -197,12 +215,12 @@ export function executeChatTurn(options: {
         }
       }
       finalReply = fixMojibake(finalReply);
-      if (chunks.length === 0 || !chunks.some((c) => c.type === "text_delta")) {
-        chunks.push({ type: "text_delta", content: finalReply, tool: "" });
+      if (chunks.length === 0 || !chunks.some((c) => c._tag === "text_delta")) {
+        pushChunk(textDeltaChunk(finalReply));
       }
     }
 
-    chunks.push({ type: "done", content: "", tool: "" });
+    pushChunk(doneChunk(""));
 
     return {
       reply: finalReply,

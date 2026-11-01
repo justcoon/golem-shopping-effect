@@ -22,10 +22,67 @@ export interface ChatMessage {
   type?: "ok" | "error";
 }
 
-export interface ChatChunk {
-  type: "tool_start" | "tool_result" | "text_delta" | "done" | "error";
+export interface TextDeltaChunk {
+  _tag: "text_delta";
   content: string;
-  tool?: string;
+}
+
+export interface ToolStartChunk {
+  _tag: "tool_start";
+  content: string;
+  toolCall: ToolCallRecord;
+}
+
+export interface ToolResultChunk {
+  _tag: "tool_result";
+  content: string;
+  toolCall: ToolCallRecord;
+}
+
+export interface DoneChunk {
+  _tag: "done";
+  content: string;
+}
+
+export interface ErrorChunk {
+  _tag: "error";
+  content: string;
+}
+
+export type ChatChunk =
+  | TextDeltaChunk
+  | ToolStartChunk
+  | ToolResultChunk
+  | DoneChunk
+  | ErrorChunk;
+
+export function normalizeChatChunk(raw: any): ChatChunk | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  // Case 1: Already has _tag
+  if (typeof raw._tag === "string") {
+    return raw as ChatChunk;
+  }
+
+  // Case 2: Legacy format with type
+  if (typeof raw.type === "string") {
+    return { ...raw, _tag: raw.type } as ChatChunk;
+  }
+
+  // Case 3: WIT canonical variant envelope: { "text_delta": { content: "..." } }
+  const keys = Object.keys(raw);
+  if (keys.length === 1) {
+    const tag = keys[0];
+    if (["text_delta", "tool_start", "tool_result", "done", "error"].includes(tag)) {
+      const payload = raw[tag];
+      if (typeof payload === "object" && payload !== null) {
+        return { _tag: tag, ...payload } as ChatChunk;
+      }
+      return { _tag: tag, content: String(payload ?? "") } as ChatChunk;
+    }
+  }
+
+  return null;
 }
 
 export interface ChatResponse {
@@ -151,22 +208,25 @@ export const streamChatWithAssistant = async (
     const handleData = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
-        if (Array.isArray(data)) {
-          for (const item of data) {
-            onChunk(item);
-            if (item.type === "done") {
+        const processItem = (item: any) => {
+          const chunk = normalizeChatChunk(item);
+          if (chunk) {
+            onChunk(chunk);
+            if (chunk._tag === "done") {
               cleanup();
               resolve();
-              return;
+              return true;
             }
           }
-        } else if (data && typeof data === "object") {
-          onChunk(data);
-          if (data.type === "done") {
-            cleanup();
-            resolve();
-            return;
+          return false;
+        };
+
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            if (processItem(item)) return;
           }
+        } else if (data && typeof data === "object") {
+          processItem(data);
         }
       } catch (err) {
         console.warn("Failed to parse SSE update:", err);
