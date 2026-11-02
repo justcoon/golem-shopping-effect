@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { Address } from "../../common/index.js";
+import { InsufficientInventoryError } from "../inventory/index.js";
 
 export const OrderStatus = Schema.Union([
   Schema.Literal("new"),
@@ -49,7 +50,7 @@ export const EmailNotValidError = Schema.Struct({
 });
 export type EmailNotValidError = typeof EmailNotValidError.Type;
 
-export const InitOrderError = ActionNotAllowedError;
+export const InitOrderError = Schema.Union([ActionNotAllowedError, InsufficientInventoryError]);
 export type InitOrderError = typeof InitOrderError.Type;
 
 export const CancelOrderError = ActionNotAllowedError;
@@ -62,13 +63,18 @@ export const AddItemError = Schema.Union([
   ProductNotFoundError,
   PricingNotFoundError,
   ActionNotAllowedError,
+  InsufficientInventoryError,
 ]);
 export type AddItemError = typeof AddItemError.Type;
 
 export const RemoveItemError = Schema.Union([ItemNotFoundError, ActionNotAllowedError]);
 export type RemoveItemError = typeof RemoveItemError.Type;
 
-export const UpdateItemQuantityError = Schema.Union([ItemNotFoundError, ActionNotAllowedError]);
+export const UpdateItemQuantityError = Schema.Union([
+  ItemNotFoundError,
+  ActionNotAllowedError,
+  InsufficientInventoryError,
+]);
 export type UpdateItemQuantityError = typeof UpdateItemQuantityError.Type;
 
 export const UpdateAddressError = Schema.Union([AddressNotValidError, ActionNotAllowedError]);

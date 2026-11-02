@@ -3,8 +3,10 @@ import {
   arrayChunks,
   CURRENCY,
   getCurrentDatetime,
+  INVENTORY_REGION_DEFAULT,
   PRICING_REGION_DEFAULT,
 } from "../../common/index.js";
+import { InventoryAgent } from "../inventory/index.js";
 import { Order, OrderAgent } from "../order/index.js";
 import { PricingAgent } from "../pricing/index.js";
 import { ProductAgent } from "../product/index.js";
@@ -45,24 +47,8 @@ export const CartAgent = CartAgentDefinition.implement({
         Effect.scoped(
           Effect.gen(function* () {
             const current = yield* getOrCreateCart;
-            const existingIndex = current.items.findIndex((item) => item.productId === productId);
 
-            const date = yield* getCurrentDatetime;
-
-            if (existingIndex >= 0) {
-              const updatedItems = current.items.map((item, idx) =>
-                idx === existingIndex ? { ...item, quantity: item.quantity + quantity } : item,
-              );
-              const updated: Cart = {
-                ...current,
-                items: updatedItems,
-                total: getCartItemsTotalPrice(updatedItems),
-                updatedAt: date,
-              };
-              yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
-              return { userId: current.userId };
-            }
-
+            // 1. Check if product exists first
             const productClient = yield* ProductAgent.client
               .get({ id: productId })
               .pipe(Effect.orDie);
@@ -75,29 +61,76 @@ export const CartAgent = CartAgentDefinition.implement({
               });
             }
 
-            const pricingClient = yield* PricingAgent.client
+            const existingIndex = current.items.findIndex((item) => item.productId === productId);
+            const currentItem = existingIndex >= 0 ? current.items[existingIndex] : undefined;
+
+            // 2. Check pricing for new item before checking inventory
+            let price = currentItem?.price;
+            if (price === undefined) {
+              const pricingClient = yield* PricingAgent.client
+                .get({ id: productId })
+                .pipe(Effect.orDie);
+              const pricing = yield* pricingClient
+                .getPrice({
+                  currency: current.currency,
+                  region: PRICING_REGION_DEFAULT,
+                })
+                .pipe(Effect.orDie);
+
+              if (!pricing) {
+                return yield* Effect.fail({
+                  _tag: "pricing-not-found" as const,
+                  message: `Pricing for product with productId ${productId} not found`,
+                  productId,
+                });
+              }
+              price = pricing.price;
+            }
+
+            // 3. Check inventory availability
+            const currentItemQuantity = currentItem ? currentItem.quantity : 0;
+            const requestedTotalQuantity = currentItemQuantity + quantity;
+
+            const targetRegion = INVENTORY_REGION_DEFAULT;
+            const inventoryClient = yield* InventoryAgent.client
               .get({ id: productId })
               .pipe(Effect.orDie);
-            const pricing = yield* pricingClient
-              .getPrice({
-                currency: current.currency,
-                region: PRICING_REGION_DEFAULT,
-              })
+            const availability = yield* inventoryClient
+              .getAvailableQuantity({ region: targetRegion })
               .pipe(Effect.orDie);
 
-            if (!pricing) {
+            if (availability.availableQuantity < requestedTotalQuantity) {
               return yield* Effect.fail({
-                _tag: "pricing-not-found" as const,
-                message: `Pricing for product with productId ${productId} not found`,
+                _tag: "insufficient-stock" as const,
+                message: `Insufficient stock for product ${productId} in region ${targetRegion}. Requested: ${requestedTotalQuantity}, available: ${availability.availableQuantity}`,
                 productId,
+                region: targetRegion,
+                requested: requestedTotalQuantity,
+                available: availability.availableQuantity,
               });
+            }
+
+            const date = yield* getCurrentDatetime;
+
+            if (existingIndex >= 0) {
+              const updatedItems = current.items.map((item, idx) =>
+                idx === existingIndex ? { ...item, quantity: requestedTotalQuantity } : item,
+              );
+              const updated: Cart = {
+                ...current,
+                items: updatedItems,
+                total: getCartItemsTotalPrice(updatedItems),
+                updatedAt: date,
+              };
+              yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
+              return { userId: current.userId };
             }
 
             const newItem: CartItem = {
               productId,
               productName: product.name,
               productBrand: product.brand,
-              price: pricing.price,
+              price,
               quantity,
             };
 
@@ -114,30 +147,51 @@ export const CartAgent = CartAgentDefinition.implement({
         ),
 
       updateItemQuantity: ({ productId, quantity }) =>
-        Effect.gen(function* () {
-          const current = yield* getOrCreateCart;
-          const existingIndex = current.items.findIndex((item) => item.productId === productId);
-          if (existingIndex < 0) {
-            return yield* Effect.fail({
-              _tag: "item-not-found" as const,
-              message: `Item with productId ${productId} not found in cart`,
-              productId,
-            });
-          }
+        Effect.scoped(
+          Effect.gen(function* () {
+            const current = yield* getOrCreateCart;
+            const existingIndex = current.items.findIndex((item) => item.productId === productId);
+            if (existingIndex < 0) {
+              return yield* Effect.fail({
+                _tag: "item-not-found" as const,
+                message: `Item with productId ${productId} not found in cart`,
+                productId,
+              });
+            }
 
-          const date = yield* getCurrentDatetime;
-          const updatedItems = current.items.map((item, idx) =>
-            idx === existingIndex ? { ...item, quantity } : item,
-          );
-          const updated: Cart = {
-            ...current,
-            items: updatedItems,
-            total: getCartItemsTotalPrice(updatedItems),
-            updatedAt: date,
-          };
-          yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
-          return { userId: current.userId };
-        }),
+            const targetRegion = INVENTORY_REGION_DEFAULT;
+            const inventoryClient = yield* InventoryAgent.client
+              .get({ id: productId })
+              .pipe(Effect.orDie);
+            const availability = yield* inventoryClient
+              .getAvailableQuantity({ region: targetRegion })
+              .pipe(Effect.orDie);
+
+            if (availability.availableQuantity < quantity) {
+              return yield* Effect.fail({
+                _tag: "insufficient-stock" as const,
+                message: `Insufficient stock for product ${productId} in region ${targetRegion}. Requested: ${quantity}, available: ${availability.availableQuantity}`,
+                productId,
+                region: targetRegion,
+                requested: quantity,
+                available: availability.availableQuantity,
+              });
+            }
+
+            const date = yield* getCurrentDatetime;
+            const updatedItems = current.items.map((item, idx) =>
+              idx === existingIndex ? { ...item, quantity } : item,
+            );
+            const updated: Cart = {
+              ...current,
+              items: updatedItems,
+              total: getCartItemsTotalPrice(updatedItems),
+              updatedAt: date,
+            };
+            yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
+            return { userId: current.userId };
+          }),
+        ),
 
       removeItem: ({ productId }) =>
         Effect.gen(function* () {
@@ -247,7 +301,7 @@ export const CartAgent = CartAgentDefinition.implement({
             const orderId = crypto.randomUUID();
             const orderClient = yield* OrderAgent.client.get({ id: orderId }).pipe(Effect.orDie);
 
-            const createResult = yield* orderClient
+            yield* orderClient
               .create({
                 order: {
                   userId: current.userId,
@@ -261,16 +315,23 @@ export const CartAgent = CartAgentDefinition.implement({
                 },
               })
               .pipe(
-                Effect.map(() => true),
-                Effect.catch(() => Effect.succeed(false)),
+                Effect.catchTag("insufficient-inventory", (invErr) =>
+                  Effect.fail({
+                    _tag: "insufficient-stock" as const,
+                    message: invErr.message,
+                    productId: invErr.productId,
+                    region: invErr.region,
+                    requested: invErr.requested,
+                    available: invErr.available,
+                  }),
+                ),
+                Effect.catch((err) =>
+                  Effect.fail({
+                    _tag: "order-create" as const,
+                    message: "message" in err ? String(err.message) : "Order creation failed",
+                  }),
+                ),
               );
-
-            if (!createResult) {
-              return yield* Effect.fail({
-                _tag: "order-create" as const,
-                message: "Order creation failed",
-              });
-            }
 
             const date = yield* getCurrentDatetime;
             const updated: Cart = {

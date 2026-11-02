@@ -18,7 +18,8 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 * {
@@ -27,7 +28,8 @@
   padding: 0;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   font-family: var(--font-family);
   background-color: var(--bg-primary);
@@ -124,8 +126,13 @@ html, body {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
 }
 
 /* Main Container Layout */
@@ -278,6 +285,139 @@ html, body {
   line-height: 1.5;
 }
 
+.text-content.markdown-body {
+  white-space: normal;
+}
+
+.markdown-body .md-p {
+  margin: 0 0 0.6rem 0;
+  line-height: 1.6;
+}
+
+.markdown-body .md-p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body strong {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.markdown-body em {
+  color: #cbd5e1;
+  font-style: italic;
+}
+
+.markdown-body .md-ul,
+.markdown-body .md-ol {
+  margin: 0.4rem 0 0.75rem 1.4rem;
+  padding: 0;
+}
+
+.markdown-body .md-ul {
+  list-style-type: disc;
+}
+
+.markdown-body .md-ol {
+  list-style-type: decimal;
+}
+
+.markdown-body .md-ul .md-ul,
+.markdown-body .md-ul .md-ol,
+.markdown-body .md-ol .md-ul,
+.markdown-body .md-ol .md-ol {
+  margin: 0.2rem 0 0.35rem 1.25rem;
+}
+
+.markdown-body .md-ul .md-ul {
+  list-style-type: circle;
+}
+
+.markdown-body .md-ul .md-ul .md-ul {
+  list-style-type: square;
+}
+
+.markdown-body .md-ol .md-ol {
+  list-style-type: lower-alpha;
+}
+
+.markdown-body .md-ol .md-ol .md-ol {
+  list-style-type: lower-roman;
+}
+
+.markdown-body .md-li {
+  margin-bottom: 0.35rem;
+  line-height: 1.55;
+}
+
+.markdown-body .md-h1 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 0.75rem 0 0.4rem;
+  color: #ffffff;
+}
+
+.markdown-body .md-h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0.65rem 0 0.35rem;
+  color: #f1f5f9;
+}
+
+.markdown-body .md-h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0.55rem 0 0.3rem;
+  color: #e2e8f0;
+}
+
+.markdown-body .md-inline-code {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 0.15rem 0.35rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  color: #38bdf8;
+}
+
+.markdown-body .md-code-block {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  margin: 0.6rem 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+  color: #f8fafc;
+}
+
+.markdown-body .md-link {
+  color: #38bdf8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-body .md-link:hover {
+  color: #7dd3fc;
+}
+
+.markdown-body .md-blockquote {
+  margin: 0.6rem 0 0.8rem 0;
+  padding: 0.5rem 0.85rem;
+  border-left: 3px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+  border-radius: 0 6px 6px 0;
+  font-size: 0.88rem;
+  color: #fef3c7;
+}
+
+.markdown-body .md-bq-p {
+  margin: 0;
+  line-height: 1.55;
+}
+
 .message-row.user .message-content {
   background-color: var(--accent-primary);
   color: #fff;
@@ -389,7 +529,9 @@ html, body {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .cursor-blink {
@@ -403,8 +545,13 @@ html, body {
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 /* Assistant and User Message Actions (Reuse / Retry) */
@@ -476,9 +623,6 @@ html, body {
 .message-row.assistant .action-btn.retry-btn:hover:not(:disabled) {
   background-color: rgba(239, 68, 68, 0.3);
   border-color: #ef4444;
-  color: #fff;
-}
-  background-color: rgba(239, 68, 68, 0.35);
   color: #fff;
 }
 
@@ -645,4 +789,3 @@ html, body {
     display: none;
   }
 }
-

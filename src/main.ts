@@ -1,14 +1,20 @@
 import "./agents/pricing/index.js";
+import "./agents/inventory/index.js";
 import "./agents/product/index.js";
 import "./agents/order/index.js";
+import "./agents/order-search/index.js";
 import "./agents/cart/index.js";
 import "./agents/product-search/index.js";
 import "./agents/shopping-assistant/index.js";
+import "./agents/manager/index.js";
 import "./web.js";
 
 export { PricingAgent } from "./agents/pricing/index.js";
+export { InventoryAgent } from "./agents/inventory/index.js";
 export { ProductAgent } from "./agents/product/index.js";
 export { OrderAgent } from "./agents/order/index.js";
+export { OrderSearchAgent } from "./agents/order-search/index.js";
 export { CartAgent } from "./agents/cart/index.js";
 export { ProductSearchAgent } from "./agents/product-search/index.js";
 export { ShoppingAssistantAgent } from "./agents/shopping-assistant/index.js";
+export { ManagerAgent } from "./agents/manager/index.js";

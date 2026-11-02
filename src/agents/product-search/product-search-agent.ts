@@ -1,6 +1,12 @@
 import { Chunk, Effect, Schema, Stream } from "effect";
 import { Agents, defineAgent, Http, method } from "@golemcloud/effect-golem";
-import { arrayChunks, CURRENCY, PRICING_REGION_DEFAULT } from "../../common/index.js";
+import {
+  arrayChunks,
+  CURRENCY,
+  INVENTORY_REGION_DEFAULT,
+  PRICING_REGION_DEFAULT,
+} from "../../common/index.js";
+import { InventoryAgent } from "../inventory/index.js";
 import { PricingAgent, PricingItem } from "../pricing/index.js";
 import { Product, ProductAgent } from "../product/index.js";
 import { ProductQueryMatcher } from "./product-query-matcher.js";
@@ -12,6 +18,7 @@ export const ProductWithPrice = Schema.Struct({
   description: Schema.String,
   tags: Schema.Array(Schema.String),
   price: Schema.NullOr(PricingItem),
+  availableQuantity: Schema.optional(Schema.Number),
   createdAt: Schema.DateTimeUtcFromString,
   updatedAt: Schema.DateTimeUtcFromString,
 });
@@ -132,20 +139,30 @@ function attachPricingToProducts(products: readonly Product[], currency?: string
     if (products.length === 0) return [];
     const targetCurrency = currency ?? CURRENCY;
     const targetRegion = PRICING_REGION_DEFAULT;
+    const inventoryRegion = INVENTORY_REGION_DEFAULT;
     const chunks = arrayChunks(products, 5);
     const enriched: ProductWithPrice[] = [];
     for (const chunk of chunks) {
       const pricingEffects = chunk.map((product) =>
         Effect.gen(function* () {
-          const client = yield* PricingAgent.client
+          const pricingClient = yield* PricingAgent.client
             .get({ id: product.productId })
             .pipe(Effect.orDie);
-          const price = yield* client
+          const price = yield* pricingClient
             .getPrice({ currency: targetCurrency, region: targetRegion })
             .pipe(Effect.orDie);
+
+          const invClient = yield* InventoryAgent.client
+            .get({ id: product.productId })
+            .pipe(Effect.orDie);
+          const avail = yield* invClient
+            .getAvailableQuantity({ region: inventoryRegion })
+            .pipe(Effect.orDie);
+
           return {
             ...product,
             price: price ?? null,
+            availableQuantity: avail.availableQuantity,
           };
         }),
       );

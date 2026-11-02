@@ -297,9 +297,39 @@ function renderMarkdown(md: string): string {
   // 7. Unordered, Ordered Lists, and Blockquotes
   const lines = text.split("\n");
   const processed: string[] = [];
-  let inUl = false;
-  let inOl = false;
   let inBq = false;
+  // Stack of active lists: { type: "ul" | "ol", indent: number, hasOpenLi: boolean }
+  const listStack: Array<{ type: "ul" | "ol"; indent: number; hasOpenLi: boolean }> = [];
+
+  function closeTopLi(): void {
+    if (listStack.length > 0) {
+      const top = listStack[listStack.length - 1];
+      if (top.hasOpenLi) {
+        if (processed.length > 0 && !processed[processed.length - 1].endsWith("</li>")) {
+          processed[processed.length - 1] += "</li>";
+        } else {
+          processed.push("</li>");
+        }
+        top.hasOpenLi = false;
+      }
+    }
+  }
+
+  function closeList(): void {
+    if (listStack.length > 0) {
+      closeTopLi();
+      const popped = listStack.pop();
+      if (popped) {
+        processed.push(`</${popped.type}>`);
+      }
+    }
+  }
+
+  function closeAllLists(): void {
+    while (listStack.length > 0) {
+      closeList();
+    }
+  }
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -308,72 +338,75 @@ function renderMarkdown(md: string): string {
     const bqMatch = line.match(/^>\s?(.*)$/);
 
     if (bqMatch) {
-      if (inUl) {
-        processed.push("</ul>");
-        inUl = false;
-      }
-      if (inOl) {
-        processed.push("</ol>");
-        inOl = false;
-      }
+      closeAllLists();
       if (!inBq) {
         processed.push("");
         processed.push('<blockquote class="md-blockquote">');
         inBq = true;
       }
       processed.push(`  <p class="md-bq-p">${bqMatch[1]}</p>`);
-    } else if (ulMatch) {
+    } else if (ulMatch || olMatch) {
       if (inBq) {
         processed.push("</blockquote>");
         inBq = false;
       }
-      if (!inUl) {
-        if (inOl) {
-          processed.push("</ol>");
-          inOl = false;
-        }
+      const rawIndent = (ulMatch || olMatch)![1];
+      const indent = rawIndent.replace(/\t/g, "  ").length;
+      const type = ulMatch ? "ul" : "ol";
+      const content = (ulMatch || olMatch)![2];
+
+      if (listStack.length === 0) {
         processed.push("");
-        processed.push('<ul class="md-ul">');
-        inUl = true;
-      }
-      processed.push(`  <li class="md-li">${ulMatch[2]}</li>`);
-    } else if (olMatch) {
-      if (inBq) {
-        processed.push("</blockquote>");
-        inBq = false;
-      }
-      if (!inOl) {
-        if (inUl) {
-          processed.push("</ul>");
-          inUl = false;
+        processed.push(`<${type} class="md-${type}">`);
+        processed.push(`  <li class="md-li">${content}`);
+        listStack.push({ type, indent, hasOpenLi: true });
+      } else {
+        const top = listStack[listStack.length - 1];
+        if (indent > top.indent) {
+          processed.push(`<${type} class="md-${type}">`);
+          processed.push(`  <li class="md-li">${content}`);
+          listStack.push({ type, indent, hasOpenLi: true });
+        } else {
+          while (listStack.length > 0 && indent < listStack[listStack.length - 1].indent) {
+            closeList();
+          }
+          if (listStack.length === 0) {
+            processed.push(`<${type} class="md-${type}">`);
+            processed.push(`  <li class="md-li">${content}`);
+            listStack.push({ type, indent, hasOpenLi: true });
+          } else {
+            const currentTop = listStack[listStack.length - 1];
+            if (currentTop.type !== type || indent > currentTop.indent) {
+              if (currentTop.type !== type) {
+                closeList();
+              }
+              processed.push(`<${type} class="md-${type}">`);
+              processed.push(`  <li class="md-li">${content}`);
+              listStack.push({ type, indent, hasOpenLi: true });
+            } else {
+              closeTopLi();
+              processed.push(`  <li class="md-li">${content}`);
+              currentTop.hasOpenLi = true;
+            }
+          }
         }
-        processed.push("");
-        processed.push('<ol class="md-ol">');
-        inOl = true;
       }
-      processed.push(`  <li class="md-li">${olMatch[2]}</li>`);
     } else {
       if (inBq) {
         processed.push("</blockquote>");
         processed.push("");
         inBq = false;
       }
-      if (inUl) {
-        processed.push("</ul>");
+      if (listStack.length > 0) {
+        closeAllLists();
         processed.push("");
-        inUl = false;
-      }
-      if (inOl) {
-        processed.push("</ol>");
-        processed.push("");
-        inOl = false;
       }
       processed.push(line);
     }
   }
+
   if (inBq) processed.push("</blockquote>");
-  if (inUl) processed.push("</ul>");
-  if (inOl) processed.push("</ol>");
+  closeAllLists();
 
   text = processed.join("\n");
 
@@ -979,6 +1012,29 @@ function renderMarkdown(md: string): string {
 
 .markdown-body :deep(.md-ol) {
   list-style-type: decimal;
+}
+
+.markdown-body :deep(.md-ul .md-ul),
+.markdown-body :deep(.md-ul .md-ol),
+.markdown-body :deep(.md-ol .md-ul),
+.markdown-body :deep(.md-ol .md-ol) {
+  margin: 0.2rem 0 0.35rem 1.25rem;
+}
+
+.markdown-body :deep(.md-ul .md-ul) {
+  list-style-type: circle;
+}
+
+.markdown-body :deep(.md-ul .md-ul .md-ul) {
+  list-style-type: square;
+}
+
+.markdown-body :deep(.md-ol .md-ol) {
+  list-style-type: lower-alpha;
+}
+
+.markdown-body :deep(.md-ol .md-ol .md-ol) {
+  list-style-type: lower-roman;
 }
 
 .markdown-body :deep(.md-li) {
