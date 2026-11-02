@@ -1,5 +1,7 @@
 // @ts-check
 
+import { cleanMojibake, escapeHtml, formatTime, renderMarkdown } from "./chat-common.js";
+
 /**
  * Golem Shopping Assistant Web Client
  * Interacts directly with Golem HTTP endpoints on the same origin.
@@ -112,16 +114,6 @@ function setStatus(type, text) {
   statusBadge.textContent = text;
 }
 
-function formatTime(isoString) {
-  try {
-    const date = isoString ? new Date(isoString) : new Date();
-    if (isNaN(date.getTime())) return "";
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
-
 function appendUserMessage(text, timestamp) {
   const row = document.createElement("div");
   row.className = "message-row user";
@@ -171,7 +163,7 @@ function createAssistantBubble(promptText, timestamp) {
           </button>
         </div>
       </div>
-      <div class="text-content"></div>
+      <div class="text-content markdown-body"></div>
       <span class="cursor-blink"></span>
       <details class="tools-details" open style="display: none;">
         <summary class="tools-summary">
@@ -204,6 +196,17 @@ function createAssistantBubble(promptText, timestamp) {
     retryBtn,
     toolCards: new Map(),
     prompt: promptText || lastUserMessage,
+    rawText: "",
+    setText(text) {
+      bubble.rawText = text || "";
+      if (textContent) textContent.innerHTML = renderMarkdown(bubble.rawText);
+      scrollToBottom();
+    },
+    appendText(chunk) {
+      bubble.rawText += chunk || "";
+      if (textContent) textContent.innerHTML = renderMarkdown(bubble.rawText);
+      scrollToBottom();
+    },
     updateToolCount() {
       const count = toolCardsContainer.children.length;
       if (toolsCount) toolsCount.textContent = String(count);
@@ -282,8 +285,7 @@ async function sendMessage(message) {
 
           if (chunk._tag === "text_delta") {
             receivedAnyText = true;
-            bubble.textContent.textContent += chunk.delta || chunk.content || "";
-            scrollToBottom();
+            bubble.appendText(chunk.delta || chunk.content || "");
           } else if (chunk._tag === "tool_start") {
             const tc = chunk.toolCall;
             if (tc) {
@@ -358,7 +360,7 @@ async function sendMessage(message) {
       }
 
       const syncData = await syncRes.json();
-      bubble.textContent.textContent = syncData.reply || "";
+      bubble.setText(syncData.reply || "");
 
       // Render tool calls if present
       if (Array.isArray(syncData.toolCalls)) {
@@ -375,14 +377,11 @@ async function sendMessage(message) {
       }
     } catch (fallbackErr) {
       console.error("Chat request failed:", fallbackErr);
-      bubble.textContent.textContent = `Error: ${fallbackErr.message}`;
+      bubble.setText(`Error: ${fallbackErr.message}`);
       bubble.showRetry();
     }
   } finally {
     if (bubble.cursor) bubble.cursor.remove();
-    if (bubble.textContent) {
-      bubble.textContent.textContent = bubble.textContent.textContent.trim();
-    }
     if (bubble.row.classList.contains("error")) {
       bubble.showRetry();
     }
@@ -420,7 +419,7 @@ async function loadHistory() {
         appendUserMessage(msg.content, msg.timestamp);
       } else if (msg.role === "assistant") {
         const bubble = createAssistantBubble(lastPrompt, msg.timestamp);
-        bubble.textContent.textContent = (msg.content || "").trim();
+        bubble.setText(msg.content || "");
         if (bubble.cursor) bubble.cursor.remove();
 
         if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
@@ -480,17 +479,6 @@ function scrollToBottom() {
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-function escapeHtml(str) {
-  if (!str) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
 // Initial load
 loadHistory();
 loadRecommendations();
-

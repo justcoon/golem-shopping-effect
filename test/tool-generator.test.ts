@@ -448,4 +448,49 @@ describe("Tool Generator (shopping-assistant-tool-generator)", () => {
     assert.strictEqual(capturedMethodArgs.currency, undefined);
     assert.strictEqual(output.summary, "Completed search_products");
   });
+
+  it("passes empty record {} to client.get when resolveId is omitted for durable singleton agents", async () => {
+    let getCalledWithId: unknown = "not-called";
+
+    const singletonAgent = {
+      name: "OrderSearchAgent",
+      mode: "durable",
+      methods: {
+        getRecentOrders: {
+          description: "Get recent orders",
+          input: {
+            limit: Schema.optional(Schema.Number),
+          },
+          success: Schema.Array(Schema.String),
+          error: Schema.Never,
+        },
+      },
+      client: {
+        get: (id: unknown) => {
+          getCalledWithId = id;
+          return Effect.succeed({
+            getRecentOrders: (_args: unknown) => Effect.succeed(["order-1", "order-2"]),
+          });
+        },
+      },
+    };
+
+    const tool = createToolFromAgentMethod(singletonAgent, "getRecentOrders", {
+      toolName: "list_recent_orders",
+    });
+
+    const output = await Effect.runPromise(
+      tool.run({ limit: 5 }, { userId: "admin" }) as Effect.Effect<
+        { summary: string; resultString: string },
+        never,
+        never
+      >,
+    );
+
+    assert.deepStrictEqual(getCalledWithId, {});
+    assert.strictEqual(output.summary, "Completed list_recent_orders");
+    const parsed = JSON.parse(output.resultString);
+    assert.strictEqual(parsed._tag, "Success");
+    assert.deepStrictEqual(parsed.value, ["order-1", "order-2"]);
+  });
 });

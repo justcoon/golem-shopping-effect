@@ -5,7 +5,7 @@ import {
   fixMojibake,
   formatLlmErrorMessage,
   formatUnknownError,
-} from "../src/common/error-formatter.js";
+} from "../src/ai/error-formatter.js";
 
 describe("LLM Error Formatting", () => {
   it("parses array error format from Gemini HTTP 503 transparently", () => {

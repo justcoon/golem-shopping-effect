@@ -31,7 +31,12 @@ components:
     dir: ""
     templates: effect
 agents:
-  Web:
+  WebAssistant:
+    files:
+    - sourcePath: ./web/
+      targetPath: /web/
+      permissions: read-only
+  WebManager:
     files:
     - sourcePath: ./web/
       targetPath: /web/
@@ -52,16 +57,24 @@ httpApi:
         PricingAgent: {}
         ProductAgent: {}
         ProductSearchAgent: {}
+        InventoryAgent: {}
         ShoppingAssistantAgent: {}
         CartAgent: {}
         OrderAgent: {}
-        Web: {}
+        OrderSearchAgent: {}
+        ManagerAgent: {}
+        WebAssistant: {}
+        WebManager: {}
 #    - subdomain: golem-shopping-effect
 #      agents:
 #        PricingAgent: {}
 #        ProductAgent: {}
 #        ProductSearchAgent: {}
+#        InventoryAgent: {}
 #        ShoppingAssistantAgent: {}
 #        CartAgent: {}
 #        OrderAgent: {}
-#        Web: {}
+#        OrderSearchAgent: {}
+#        ManagerAgent: {}
+#        WebAssistant: {}
+#        WebManager: {}

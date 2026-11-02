@@ -1,2 +1,2 @@
 export * from "./models.js";
-export * from "./error-formatter.js";
+export * from "../ai/error-formatter.js";

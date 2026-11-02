@@ -11,23 +11,29 @@ This is an e-commerce application built with an agent-based architecture on [Gol
 ## Architecture Components
 
 ### Agents
-- **Product Agent**: Manages the product catalog, details, inventory, and product metadata.
+- **Product Agent**: Manages the product catalog, details, and product metadata.
 - **Pricing Agent**: Handles product pricing, currency conversions, volume discounts, and promotions.
+- **Inventory Agent**: Manages regional product stock levels and order allocations, ensuring consistency during checkout and post-checkout order modifications.
 - **Cart Agent**: Stateful per-user shopping carts that manage item additions, quantities, and cart-to-order conversions.
 - **Order Agent**: Manages the end-to-end order lifecycle from checkout to fulfillment.
 - **Product Search Agent**: Provides catalog search with flexible query filtering (keywords, brands, tags).
+- **Order Search Agent**: Provides system-wide order search, filtering by status, user ID, or free-text query, and date sorting.
 - **Shopping Assistant Agent**: Autonomous AI assistant that plans and executes multi-turn tool calling across domain agents using durable Golem RPC.
+- **Manager Agent**: Autonomous AI assistant for store managers to search, modify, ship, and cancel orders, and inspect catalog/inventory.
 
-### Shopping Assistant Architecture
-- **Autonomous Agent Loop**: Manages multi-turn conversational state, model message history, and autonomous tool calling.
-- **Multi-Provider LLM Support**: Supports Google Gemini (with cryptographic thought signatures for function calling), OpenRouter, and any OpenAI-compatible provider.
-- **Durable Golem RPC Tools**: Tools (`search_products`, `get_cart`, `add_to_cart`, `clear_cart`, `checkout_cart`, `get_order_details`) run within the agent's ambient Effect context, invoking domain agents via type-safe Golem RPC.
-- **Streaming & Multi-Turn**: Exposes both synchronous `chat` and streaming `chatStream` methods, streaming incremental text and tool updates.
-- **Structured WASI Logging**: Logs tool invocation lifecycle events (`[ShoppingAssistant] Invoking tool...` and `[ShoppingAssistant] Tool ... completed`) through Effect WASI logging.
+### AI & Agent Tool Architecture (`src/ai/`)
+- **Shared AI Framework**: General-purpose AI subsystem (`src/ai/`) powering both `ShoppingAssistantAgent` and `ManagerAgent`.
+- **Autonomous Agent Loop**: Powered by `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai`, managing multi-turn conversational state, message history, and autonomous tool calling.
+- **Multi-Provider LLM Support**: Native support for Google Gemini (with cryptographic thought signatures for function calling), OpenRouter, and any OpenAI-compatible provider.
+- **Dynamic Tool Generation**: Declaratively converts agent methods into type-safe LLM tools with schema validation, custom input mapping, and automatic agent ID resolution.
+- **Durable Streaming & Multi-Turn**: Exposes synchronous `chat` and Durable Streams `chatStream` methods with real-time token and tool event streaming.
+- **Structured WASI Logging**: Logs tool invocation lifecycle events (`[ShoppingAssistant]` and `[ManagerAgent]`) through Effect WASI logging.
 
 ### Key Features
 - **RESTful HTTP API**: All agents expose HTTP endpoints declared in `golem.yaml` and mapped directly to agent methods.
-- **Built-in Web Interface**: Zero-setup web client served directly by Golem at `/assistant` with real-time SSE streaming, collapsible tool inspection, and product recommendations.
+- **Built-in Web Interfaces**: Zero-setup web clients served directly by Golem:
+  - `/assistant`: Customer shopping assistant with real-time SSE streaming, collapsible tool inspection, and dynamic recommendations.
+  - `/manager`: Store operations dashboard for searching, inspecting, modifying, shipping, and cancelling orders, plus inventory checks.
 - **Storefront Frontend**: Vue 3 and Vite e-commerce storefront for product browsing, cart, and checkout.
 - **Durable Execution & State**: State persistence, retries, and crash recovery are managed automatically by Golem Cloud.
 - **Agent-to-Agent RPC**: Zero-boilerplate, type-safe RPC between agents with ambient context propagation.
@@ -83,11 +89,11 @@ npm install
 golem build --yes
 
 # Deploy to local Golem environment
-golem deploy
+golem deploy --yes
 ```
 
 ### 4. Import Sample Data
-To populate the product catalog and pricing, see the [Data README](./data/README.md).
+To populate the product catalog, pricing, and regional inventory, see the [Data README](./data/README.md).
 
 From the `data/` directory:
 ```bash
@@ -101,7 +107,14 @@ http://localhost:9006/assistant
 ```
 Supports live SSE streaming, collapsible tool execution details, prompt reuse (`🔄`), error retry, dynamic product recommendations, and multi-user switching.
 
-### 6. Storefront Frontend (Vue 3)
+### 6. Launch the Store Manager Interface
+The store management interface is hosted directly by Golem at `/manager`:
+```
+http://localhost:9006/manager
+```
+Empowers store managers to search, inspect, modify, cancel, and ship orders, and inspect catalog/inventory allocations with live SSE streaming and collapsible tool execution details.
+
+### 7. Storefront Frontend (Vue 3)
 A full e-commerce storefront for product browsing, cart management, and checkout is available in the [`frontend/`](./frontend) directory:
 ```bash
 cd frontend

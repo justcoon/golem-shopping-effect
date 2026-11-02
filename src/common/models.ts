@@ -15,6 +15,7 @@ export type Address = typeof Address.Type;
 
 export const CURRENCY = "USD";
 export const PRICING_REGION_DEFAULT = "global";
+export const INVENTORY_REGION_DEFAULT = "global";
 
 export function arrayChunks<T>(array: readonly T[], chunkSize: number): T[][] {
   const chunks: T[][] = [];
@@ -55,3 +56,16 @@ export function schemaToJsonSchema(schema: Schema.Schema<any>): Record<string, u
     properties: {},
   };
 }
+
+/**
+ * Converts agent RPC transport failures (RemoteCallError) into defects while preserving domain errors.
+ */
+export const orDieRpc = <A, E, R>(eff: Effect.Effect<A, E, R>) =>
+  eff.pipe(
+    Effect.catchTags({
+      RpcCallError: Effect.die,
+      InvalidUuidError: Effect.die,
+      RemoteResponseError: Effect.die,
+      ScopeCardUnavailableError: Effect.die,
+    }),
+  );

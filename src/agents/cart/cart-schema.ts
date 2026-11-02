@@ -58,13 +58,27 @@ export const OrderCreateError = Schema.Struct({
 });
 export type OrderCreateError = typeof OrderCreateError.Type;
 
-export const AddItemError = Schema.Union([ProductNotFoundError, PricingNotFoundError]);
+export const InsufficientStockError = Schema.Struct({
+  _tag: Schema.Literal("insufficient-stock"),
+  message: Schema.String,
+  productId: Schema.String,
+  region: Schema.String,
+  requested: Schema.Number,
+  available: Schema.Number,
+});
+export type InsufficientStockError = typeof InsufficientStockError.Type;
+
+export const AddItemError = Schema.Union([
+  ProductNotFoundError,
+  PricingNotFoundError,
+  InsufficientStockError,
+]);
 export type AddItemError = typeof AddItemError.Type;
 
 export const RemoveItemError = ItemNotFoundError;
 export type RemoveItemError = typeof RemoveItemError.Type;
 
-export const UpdateItemQuantityError = ItemNotFoundError;
+export const UpdateItemQuantityError = Schema.Union([ItemNotFoundError, InsufficientStockError]);
 export type UpdateItemQuantityError = typeof UpdateItemQuantityError.Type;
 
 export const UpdateAddressError = AddressNotValidError;
@@ -80,6 +94,7 @@ export const CheckoutError = Schema.Union([
   EmptyEmailError,
   BillingAddressNotSetError,
   OrderCreateError,
+  InsufficientStockError,
 ]);
 export type CheckoutError = typeof CheckoutError.Type;
 

@@ -1,16 +1,11 @@
 import { Effect, Stream } from "effect";
-import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import { extractLlmErrorMessage, fixMojibake, formatLlmErrorMessage } from "../../common/index.js";
-import {
-  ChatChunk,
-  ChatMessage,
-  ChatMessageType,
-  ToolCallRecord,
-} from "./shopping-assistant-schema.js";
-import { setupModelsAndProvider } from "./shopping-assistant-pi-provider.js";
+import { ChatChunk, ChatMessage, setupModelsAndProvider } from "../../ai/index.js";
+import { ChatTurnResult, executeAgentChatTurn } from "../../ai/agent-loop.js";
 import { getShoppingAssistantPiTools } from "./shopping-assistant-tools.js";
 
 export { extractLlmErrorMessage, fixMojibake, formatLlmErrorMessage, setupModelsAndProvider };
+export type { ChatTurnResult };
 
 export const SYSTEM_PROMPT = `You are a helpful, courteous, and efficient personal Shopping Assistant for our e-commerce store.
 You have access to tools to help the user:
@@ -23,6 +18,7 @@ You have access to tools to help the user:
 - Manually set shipping address, billing address, or email on the cart (set_shipping_address, set_billing_address, set_email)
 - Place the order (checkout_cart)
 - Check order history or track a specific order (get_order_history, get_order_details)
+- Check product inventory (check_inventory)
 
 Guidelines:
 1. Be concise, polite, and directly address the user's intent.
@@ -45,33 +41,6 @@ Guidelines:
 4. When showing order history, summarize recent orders clearly (status, total, date).
 5. Output plain ASCII punctuation: use standard hyphens ('-') instead of special en-dashes ('–') or em-dashes ('—'), and standard quotes.`;
 
-export interface ChatTurnResult {
-  readonly reply: string;
-  readonly toolCallsUsed: readonly ToolCallRecord[];
-  readonly chunks: readonly ChatChunk[];
-  readonly type: ChatMessageType;
-}
-
-function textDeltaChunk(content: string): ChatChunk {
-  return { _tag: "text_delta", content };
-}
-
-function toolStartChunk(content: string, toolCall: ToolCallRecord): ChatChunk {
-  return { _tag: "tool_start", content, toolCall };
-}
-
-function toolResultChunk(content: string, toolCall: ToolCallRecord): ChatChunk {
-  return { _tag: "tool_result", content, toolCall };
-}
-
-function doneChunk(content = ""): ChatChunk {
-  return { _tag: "done", content };
-}
-
-function errorChunk(content: string): ChatChunk {
-  return { _tag: "error", content };
-}
-
 export function executeChatTurn(options: {
   readonly userId: string;
   readonly apiKey: string;
@@ -81,163 +50,20 @@ export function executeChatTurn(options: {
   readonly userMessage: string;
 }): Effect.Effect<ChatTurnResult> {
   return Effect.gen(function* () {
-    const { userId, apiKey, model, apiUrl, history, userMessage } = options;
-
-    if (!apiKey) {
-      const msg =
-        "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.";
-      return {
-        reply: msg,
-        toolCallsUsed: [],
-        chunks: [textDeltaChunk(msg), errorChunk(msg), doneChunk("")],
-        type: "error" as ChatMessageType,
-      };
-    }
-
-    const { models, resolvedModel } = setupModelsAndProvider({ apiKey, model, apiUrl });
     const context = yield* Effect.context();
-    const tools = getShoppingAssistantPiTools(userId, context);
+    const tools = getShoppingAssistantPiTools(options.userId, context);
 
-    // Convert prior history to Pi AgentMessage[] format
-    const initialMessages: AgentMessage[] = [];
-    for (const h of history) {
-      if (h.role === "user") {
-        initialMessages.push({
-          role: "user",
-          content: [{ type: "text", text: h.content }],
-          timestamp: Date.now(),
-        });
-      } else if (h.role === "assistant") {
-        initialMessages.push({
-          role: "assistant",
-          content: [{ type: "text", text: h.content }],
-          api: resolvedModel.api,
-          provider: resolvedModel.provider,
-          model: resolvedModel.id,
-          usage: {
-            input: 0,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-            totalTokens: 0,
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-          },
-          stopReason: "stop",
-          timestamp: Date.now(),
-        });
-      }
-    }
-
-    const chunks: ChatChunk[] = [];
-    const accumulatedToolCalls: ToolCallRecord[] = [];
-    const toolArgsById = new Map<string, unknown>();
-    let isError = false;
-    let errorMessage = "";
-
-    const pushChunk = (chunk: ChatChunk) => {
-      chunks.push(chunk);
-    };
-
-    const agent = new Agent({
-      initialState: {
-        systemPrompt: SYSTEM_PROMPT,
-        model: resolvedModel,
-        tools,
-        messages: initialMessages,
-      },
-      streamFn: models.streamSimple.bind(models),
-      getApiKey: () => apiKey,
+    return yield* executeAgentChatTurn({
+      systemPrompt: SYSTEM_PROMPT,
+      tools,
+      apiKey: options.apiKey,
+      model: options.model,
+      apiUrl: options.apiUrl,
+      history: options.history,
+      userMessage: options.userMessage,
+      missingApiKeyMessage:
+        "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
     });
-
-    agent.subscribe((event) => {
-      switch (event.type) {
-        case "tool_execution_start": {
-          const argsString =
-            typeof event.args === "string" ? event.args : JSON.stringify(event.args ?? {});
-          toolArgsById.set(event.toolCallId, argsString);
-          pushChunk(
-            toolStartChunk(`Executing ${event.toolName}...`, {
-              id: event.toolCallId,
-              toolName: event.toolName,
-              arguments: argsString,
-              result: "",
-            }),
-          );
-          break;
-        }
-        case "tool_execution_end": {
-          const summary =
-            event.result?.details?.summary ?? (event.isError ? "Failed" : "Completed");
-          const resultString =
-            event.result?.details?.resultString ?? JSON.stringify(event.result ?? {});
-          const rawArgs = (toolArgsById.get(event.toolCallId) as string) ?? "";
-          const toolCall: ToolCallRecord = {
-            id: event.toolCallId,
-            toolName: event.toolName,
-            arguments: rawArgs,
-            result: resultString,
-          };
-          pushChunk(toolResultChunk(summary, toolCall));
-          accumulatedToolCalls.push(toolCall);
-          break;
-        }
-        case "message_update": {
-          const update = event.assistantMessageEvent;
-          if (update.type === "text_delta" && update.delta) {
-            pushChunk(textDeltaChunk(update.delta));
-          }
-          break;
-        }
-        default:
-          break;
-      }
-    });
-
-    try {
-      yield* Effect.promise(() => agent.prompt(userMessage));
-    } catch (err: unknown) {
-      isError = true;
-      errorMessage = err instanceof Error ? err.message : String(err);
-    }
-
-    if (agent.state.errorMessage) {
-      isError = true;
-      errorMessage = agent.state.errorMessage;
-    }
-
-    let finalReply = "";
-    if (isError) {
-      const raw = errorMessage || "AI service request failed";
-      const cleaned = extractLlmErrorMessage(400, raw);
-      finalReply =
-        cleaned && !cleaned.startsWith("HTTP 400")
-          ? `AI service error: ${cleaned}`
-          : `AI service error: ${raw}`;
-      pushChunk(textDeltaChunk(finalReply));
-      pushChunk(errorChunk(finalReply));
-    } else {
-      const lastMsg = agent.state.messages[agent.state.messages.length - 1];
-      if (lastMsg && lastMsg.role === "assistant") {
-        for (const block of lastMsg.content) {
-          if (block.type === "text") {
-            finalReply += block.text;
-          }
-        }
-      }
-      finalReply = fixMojibake(finalReply);
-      if (chunks.length === 0 || !chunks.some((c) => c._tag === "text_delta")) {
-        pushChunk(textDeltaChunk(finalReply));
-      }
-    }
-
-    pushChunk(doneChunk(""));
-
-    return {
-      reply: finalReply,
-      toolCallsUsed: accumulatedToolCalls,
-      chunks,
-      type: (isError ? "error" : "ok") as ChatMessageType,
-    };
   });
 }
 
