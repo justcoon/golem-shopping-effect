@@ -1,5 +1,5 @@
-import { Effect, Redacted, Ref, Stream } from "effect";
-import { ChatMessage, executeAgentChatTurn } from "../../ai/index.js";
+import { Effect, Redacted, Ref } from "effect";
+import { ChatMessage, executeAgentChatTurn, executeAgentChatTurnStream } from "../../ai/index.js";
 import { ManagerAgentConfig, ManagerAgentDefinition } from "./manager-definition.js";
 import { getManagerPiTools } from "./manager-tools.js";
 
@@ -98,48 +98,45 @@ export const ManagerAgent = ManagerAgentDefinition.implement({
       ).pipe(Effect.orDie),
 
     chatStream: ({ message }) =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const { managerId, messages } = yield* Ref.get(state);
-          const { apiKey, model, apiUrl } = yield* resolveLlmConfig;
-          const context = yield* Effect.context();
-          const tools = getManagerPiTools(managerId, context);
+      Effect.gen(function* () {
+        const { managerId, messages } = yield* Ref.get(state);
+        const { apiKey, model, apiUrl } = yield* resolveLlmConfig;
+        const context = yield* Effect.context();
+        const tools = getManagerPiTools(managerId, context);
 
-          const result = yield* executeAgentChatTurn({
-            systemPrompt: MANAGER_SYSTEM_PROMPT,
-            tools,
-            apiKey,
-            model,
-            apiUrl,
-            history: messages,
-            userMessage: message,
-            missingApiKeyMessage:
-              "Manager assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
-          });
-
-          const now = new Date().toISOString();
-          const userMsg: ChatMessage = {
-            role: "user",
-            content: message,
-            timestamp: now,
-            type: "ok",
-          };
-          const assistantMsg: ChatMessage = {
-            role: "assistant",
-            content: result.reply,
-            toolCalls: result.toolCallsUsed.length > 0 ? [...result.toolCallsUsed] : undefined,
-            timestamp: now,
-            type: result.type,
-          };
-
-          yield* Ref.update(state, (prev) => ({
-            ...prev,
-            messages: [...prev.messages, userMsg, assistantMsg],
-          }));
-
-          return Stream.fromIterable(result.chunks);
-        }),
-      ).pipe(Effect.orDie),
+        return executeAgentChatTurnStream({
+          systemPrompt: MANAGER_SYSTEM_PROMPT,
+          tools,
+          apiKey,
+          model,
+          apiUrl,
+          history: messages,
+          userMessage: message,
+          missingApiKeyMessage:
+            "Manager assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
+          onTurnComplete: (result) =>
+            Ref.update(state, (prev) => {
+              const now = new Date().toISOString();
+              const userMsg: ChatMessage = {
+                role: "user",
+                content: message,
+                timestamp: now,
+                type: "ok",
+              };
+              const assistantMsg: ChatMessage = {
+                role: "assistant",
+                content: result.reply,
+                toolCalls: result.toolCallsUsed.length > 0 ? [...result.toolCallsUsed] : undefined,
+                timestamp: now,
+                type: result.type,
+              };
+              return {
+                ...prev,
+                messages: [...prev.messages, userMsg, assistantMsg],
+              };
+            }),
+        });
+      }).pipe(Effect.orDie),
 
     getHistory: () => Ref.get(state).pipe(Effect.map(({ messages }) => [...messages])),
 

@@ -1,7 +1,11 @@
 import { Effect, Stream } from "effect";
 import { extractLlmErrorMessage, fixMojibake, formatLlmErrorMessage } from "../../common/index.js";
 import { ChatChunk, ChatMessage, setupModelsAndProvider } from "../../ai/index.js";
-import { ChatTurnResult, executeAgentChatTurn } from "../../ai/agent-loop.js";
+import {
+  ChatTurnResult,
+  executeAgentChatTurn,
+  executeAgentChatTurnStream,
+} from "../../ai/agent-loop.js";
 import { getShoppingAssistantPiTools } from "./shopping-assistant-tools.js";
 
 export { extractLlmErrorMessage, fixMojibake, formatLlmErrorMessage, setupModelsAndProvider };
@@ -80,8 +84,25 @@ export function executeChatTurnStream(options: {
   readonly apiUrl?: string;
   readonly history: readonly ChatMessage[];
   readonly userMessage: string;
+  readonly onTurnComplete?: (result: ChatTurnResult) => Effect.Effect<void>;
 }): Stream.Stream<ChatChunk> {
-  return Stream.fromEffect(executeChatTurn(options)).pipe(
-    Stream.flatMap((result) => Stream.fromIterable(result.chunks)),
+  return Stream.unwrap(
+    Effect.gen(function* () {
+      const context = yield* Effect.context();
+      const tools = getShoppingAssistantPiTools(options.userId, context);
+
+      return executeAgentChatTurnStream({
+        systemPrompt: SYSTEM_PROMPT,
+        tools,
+        apiKey: options.apiKey,
+        model: options.model,
+        apiUrl: options.apiUrl,
+        history: options.history,
+        userMessage: options.userMessage,
+        missingApiKeyMessage:
+          "Shopping assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
+        onTurnComplete: options.onTurnComplete,
+      });
+    }),
   );
 }

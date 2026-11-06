@@ -1,10 +1,10 @@
-import { Effect, Redacted, Ref, Stream } from "effect";
+import { Effect, Redacted, Ref } from "effect";
 import { getCurrentDatetime } from "../../common/index.js";
 import {
   ShoppingAssistantConfig,
   ShoppingAssistantDefinition,
 } from "./shopping-assistant-definition.js";
-import { executeChatTurn } from "./shopping-assistant-loop.js";
+import { executeChatTurn, executeChatTurnStream } from "./shopping-assistant-loop.js";
 import { executeRecommendItems } from "./shopping-assistant-recommendations.js";
 import { ChatMessage, RecommendedItems } from "./shopping-assistant-schema.js";
 
@@ -83,43 +83,40 @@ export const ShoppingAssistantAgent = ShoppingAssistantDefinition.implement({
       ).pipe(Effect.orDie),
 
     chatStream: ({ message }) =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const { userId, messages } = yield* Ref.get(state);
-          const { apiKey, model, apiUrl } = yield* resolveLlmConfig;
+      Effect.gen(function* () {
+        const { userId, messages } = yield* Ref.get(state);
+        const { apiKey, model, apiUrl } = yield* resolveLlmConfig;
 
-          const result = yield* executeChatTurn({
-            userId,
-            apiKey,
-            model,
-            apiUrl,
-            history: messages,
-            userMessage: message,
-          });
-
-          const now = new Date().toISOString();
-          const userMsg: ChatMessage = {
-            role: "user",
-            content: message,
-            timestamp: now,
-            type: "ok",
-          };
-          const assistantMsg: ChatMessage = {
-            role: "assistant",
-            content: result.reply,
-            toolCalls: result.toolCallsUsed.length > 0 ? [...result.toolCallsUsed] : undefined,
-            timestamp: now,
-            type: result.type,
-          };
-
-          yield* Ref.update(state, (prev) => ({
-            ...prev,
-            messages: [...prev.messages, userMsg, assistantMsg],
-          }));
-
-          return Stream.fromIterable(result.chunks);
-        }),
-      ).pipe(Effect.orDie),
+        return executeChatTurnStream({
+          userId,
+          apiKey,
+          model,
+          apiUrl,
+          history: messages,
+          userMessage: message,
+          onTurnComplete: (result) =>
+            Ref.update(state, (prev) => {
+              const now = new Date().toISOString();
+              const userMsg: ChatMessage = {
+                role: "user",
+                content: message,
+                timestamp: now,
+                type: "ok",
+              };
+              const assistantMsg: ChatMessage = {
+                role: "assistant",
+                content: result.reply,
+                toolCalls: result.toolCallsUsed.length > 0 ? [...result.toolCallsUsed] : undefined,
+                timestamp: now,
+                type: result.type,
+              };
+              return {
+                ...prev,
+                messages: [...prev.messages, userMsg, assistantMsg],
+              };
+            }),
+        });
+      }).pipe(Effect.orDie),
 
     getHistory: () => Ref.get(state).pipe(Effect.map(({ messages }) => [...messages])),
 
