@@ -16,6 +16,7 @@ export type Address = typeof Address.Type;
 export const CURRENCY = "USD";
 export const PRICING_REGION_DEFAULT = "global";
 export const INVENTORY_REGION_DEFAULT = "global";
+export const CHECKOUT_RESERVATION_TTL_SECONDS = 600;
 
 export function arrayChunks<T>(array: readonly T[], chunkSize: number): T[][] {
   const chunks: T[][] = [];

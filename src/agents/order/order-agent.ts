@@ -186,6 +186,7 @@ export const OrderAgent = defineAgent({
                   orderId: current.orderId,
                   region,
                   quantity: item.quantity,
+                  expiresAt: undefined,
                 })
                 .pipe(
                   Effect.catchTag("inventory-not-found", (err) =>
@@ -299,6 +300,7 @@ export const OrderAgent = defineAgent({
                 orderId: current.orderId,
                 region,
                 quantity: newTotalQty,
+                expiresAt: undefined,
               })
               .pipe(
                 Effect.catchTag("inventory-not-found", (err) =>
@@ -380,6 +382,7 @@ export const OrderAgent = defineAgent({
                 orderId: current.orderId,
                 region,
                 quantity,
+                expiresAt: undefined,
               })
               .pipe(
                 Effect.catchTag("inventory-not-found", (err) =>

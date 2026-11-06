@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { DateTime, Schema } from "effect";
 
 export const InventoryItem = Schema.Struct({
   region: Schema.String,
@@ -11,6 +11,7 @@ export const OrderAllocation = Schema.Struct({
   region: Schema.String,
   quantity: Schema.Number,
   updatedAt: Schema.DateTimeUtcFromString,
+  expiresAt: Schema.optional(Schema.DateTimeUtcFromString),
 });
 export type OrderAllocation = typeof OrderAllocation.Type;
 
@@ -68,3 +69,13 @@ export const mergeInventoryItems = (
   }
   return Array.from(map.values());
 };
+
+export const isAllocationExpired = (allocation: OrderAllocation, now: DateTime.Utc): boolean => {
+  if (!allocation.expiresAt) return false;
+  return DateTime.toEpochMillis(allocation.expiresAt) <= DateTime.toEpochMillis(now);
+};
+
+export const purgeExpiredAllocations = (
+  allocations: readonly OrderAllocation[],
+  now: DateTime.Utc,
+): OrderAllocation[] => allocations.filter((a) => !isAllocationExpired(a, now));

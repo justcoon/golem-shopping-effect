@@ -183,14 +183,47 @@ export const setEmailTool = createToolFromAgentMethod(CartAgentDefinition, "upda
   },
 });
 
-export const checkoutCartTool = createToolFromAgentMethod(CartAgentDefinition, "checkout", {
-  toolName: "checkout_cart",
+export const prepareCheckoutTool = createToolFromAgentMethod(
+  CartAgentDefinition,
+  "prepareCheckout",
+  {
+    toolName: "prepare_checkout",
+    resolveId: userCartId,
+    formatSummary: (result) => {
+      if (Result.isSuccess(result)) {
+        const draft = result.success.draft;
+        return draft
+          ? `Prepared checkout draft for order #${draft.orderId}. Items reserved for 10 minutes.`
+          : "Prepared checkout.";
+      }
+      return `Failed to prepare checkout: ${result.failure.message}`;
+    },
+  },
+);
+
+export const confirmCheckoutTool = createToolFromAgentMethod(
+  CartAgentDefinition,
+  "confirmCheckout",
+  {
+    toolName: "confirm_checkout",
+    resolveId: userCartId,
+    formatSummary: (result) => {
+      if (Result.isSuccess(result)) {
+        return `Order successfully confirmed! Order ID: ${result.success.orderId}`;
+      }
+      return `Failed to confirm checkout: ${result.failure.message}`;
+    },
+  },
+);
+
+export const cancelCheckoutTool = createToolFromAgentMethod(CartAgentDefinition, "cancelCheckout", {
+  toolName: "cancel_checkout",
   resolveId: userCartId,
-  formatSummary: (result) => {
+  formatSummary: (result, args) => {
     if (Result.isSuccess(result)) {
-      return `Checkout complete! Order ID: ${result.success.orderId}`;
+      return `Cancelled checkout reservation for order #${args.orderId}`;
     }
-    return `Checkout failed: ${result.failure.message}`;
+    return `Failed to cancel checkout: ${result.failure}`;
   },
 });
 
@@ -263,7 +296,9 @@ export const shoppingAssistantTools: readonly AnyAssistantToolDefinition[] = [
   setShippingAddressTool,
   setBillingAddressTool,
   setEmailTool,
-  checkoutCartTool,
+  prepareCheckoutTool,
+  confirmCheckoutTool,
+  cancelCheckoutTool,
   getOrderHistoryTool,
   getOrderDetailsTool,
 ];

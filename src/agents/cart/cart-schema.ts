@@ -68,35 +68,78 @@ export const InsufficientStockError = Schema.Struct({
 });
 export type InsufficientStockError = typeof InsufficientStockError.Type;
 
+export const ActionNotAllowedError = Schema.Struct({
+  _tag: Schema.Literal("action-not-allowed"),
+  message: Schema.String,
+});
+export type ActionNotAllowedError = typeof ActionNotAllowedError.Type;
+
 export const AddItemError = Schema.Union([
   ProductNotFoundError,
   PricingNotFoundError,
   InsufficientStockError,
+  ActionNotAllowedError,
 ]);
 export type AddItemError = typeof AddItemError.Type;
 
-export const RemoveItemError = ItemNotFoundError;
+export const RemoveItemError = Schema.Union([ItemNotFoundError, ActionNotAllowedError]);
 export type RemoveItemError = typeof RemoveItemError.Type;
 
-export const UpdateItemQuantityError = Schema.Union([ItemNotFoundError, InsufficientStockError]);
+export const UpdateItemQuantityError = Schema.Union([
+  ItemNotFoundError,
+  InsufficientStockError,
+  ActionNotAllowedError,
+]);
 export type UpdateItemQuantityError = typeof UpdateItemQuantityError.Type;
 
-export const UpdateAddressError = AddressNotValidError;
+export const UpdateAddressError = Schema.Union([AddressNotValidError, ActionNotAllowedError]);
 export type UpdateAddressError = typeof UpdateAddressError.Type;
 
-export const UpdateEmailError = EmailNotValidError;
+export const UpdateEmailError = Schema.Union([EmailNotValidError, ActionNotAllowedError]);
 export type UpdateEmailError = typeof UpdateEmailError.Type;
 
-export const CheckoutError = Schema.Union([
-  ProductNotFoundError,
-  PricingNotFoundError,
+export const PrepareCheckoutError = Schema.Union([
   EmptyItemsError,
   EmptyEmailError,
   BillingAddressNotSetError,
+  InsufficientStockError,
+  ActionNotAllowedError,
+]);
+export type PrepareCheckoutError = typeof PrepareCheckoutError.Type;
+
+export const NoActiveDraftError = Schema.Struct({
+  _tag: Schema.Literal("no-active-draft"),
+  message: Schema.String,
+});
+export type NoActiveDraftError = typeof NoActiveDraftError.Type;
+
+export const OrderMismatchError = Schema.Struct({
+  _tag: Schema.Literal("order-mismatch"),
+  message: Schema.String,
+});
+export type OrderMismatchError = typeof OrderMismatchError.Type;
+
+export const ReservationExpiredError = Schema.Struct({
+  _tag: Schema.Literal("reservation-expired"),
+  message: Schema.String,
+});
+export type ReservationExpiredError = typeof ReservationExpiredError.Type;
+
+export const ConfirmCheckoutError = Schema.Union([
+  NoActiveDraftError,
+  OrderMismatchError,
+  ReservationExpiredError,
   OrderCreateError,
   InsufficientStockError,
 ]);
-export type CheckoutError = typeof CheckoutError.Type;
+export type ConfirmCheckoutError = typeof ConfirmCheckoutError.Type;
+
+export const CheckoutDraft = Schema.Struct({
+  orderId: Schema.String,
+  expiresAt: Schema.DateTimeUtcFromString,
+  createdAt: Schema.DateTimeUtcFromString,
+});
+export type CheckoutDraft = typeof CheckoutDraft.Type;
 
 export const CartItem = Schema.Struct({
   productId: Schema.String,
@@ -117,6 +160,7 @@ export const Cart = Schema.Struct({
   currency: Schema.String,
   previousOrderIds: Schema.Array(Schema.String),
   updatedAt: Schema.DateTimeUtcFromString,
+  draft: Schema.optional(CheckoutDraft),
 });
 export type Cart = typeof Cart.Type;
 

@@ -1,9 +1,11 @@
-import { Effect, Ref } from "effect";
+import { DateTime, Duration, Effect, Ref } from "effect";
 import {
   arrayChunks,
+  CHECKOUT_RESERVATION_TTL_SECONDS,
   CURRENCY,
   getCurrentDatetime,
   INVENTORY_REGION_DEFAULT,
+  orDieRpc,
   PRICING_REGION_DEFAULT,
 } from "../../common/index.js";
 import { InventoryAgent } from "../inventory/index.js";
@@ -12,7 +14,7 @@ import { PricingAgent } from "../pricing/index.js";
 import { ProductAgent } from "../product/index.js";
 import { ShoppingAssistantDefinition } from "../shopping-assistant/shopping-assistant-definition.js";
 import { CartAgentDefinition } from "./cart-definition.js";
-import { Cart, CartItem, getCartItemsTotalPrice } from "./cart-schema.js";
+import { Cart, CartItem, CheckoutDraft, getCartItemsTotalPrice } from "./cart-schema.js";
 
 interface CartAgentState {
   readonly userId: string;
@@ -29,24 +31,60 @@ export const CartAgent = CartAgentDefinition.implement({
     const getOrCreateCart = Effect.gen(function* () {
       const { userId, cart } = yield* Ref.get(state);
       if (cart) return cart;
-      const date = yield* getCurrentDatetime;
+      const now = yield* getCurrentDatetime;
       const initial: Cart = {
         userId,
         items: [],
         total: 0,
         currency: CURRENCY,
         previousOrderIds: [],
-        updatedAt: date,
+        updatedAt: now,
       };
       yield* Ref.update(state, (curr) => ({ ...curr, cart: initial }));
       return initial;
     });
 
+    const purgeExpiredDraft = (cart: Cart, now: DateTime.Utc): Cart => {
+      if (
+        cart.draft &&
+        DateTime.toEpochMillis(cart.draft.expiresAt) <= DateTime.toEpochMillis(now)
+      ) {
+        return {
+          ...cart,
+          draft: undefined,
+          updatedAt: now,
+        };
+      }
+      return cart;
+    };
+
+    const isInCheckout = (cart: Cart, now: DateTime.Utc): boolean => {
+      if (!cart.draft) return false;
+      return DateTime.toEpochMillis(cart.draft.expiresAt) > DateTime.toEpochMillis(now);
+    };
+
+    const ensureModifiable = (now: DateTime.Utc) =>
+      Effect.gen(function* () {
+        const cart = yield* getOrCreateCart;
+        const purged = purgeExpiredDraft(cart, now);
+        if (purged !== cart) {
+          yield* Ref.update(state, (curr) => ({ ...curr, cart: purged }));
+        }
+        if (purged.draft) {
+          return yield* Effect.fail({
+            _tag: "action-not-allowed" as const,
+            message: `Cannot modify cart while checkout is in progress for order #${purged.draft.orderId}. Please confirm or cancel the active checkout first.`,
+          });
+        }
+        return purged;
+      });
+
     return {
       addItem: ({ productId, quantity }) =>
         Effect.scoped(
           Effect.gen(function* () {
-            const current = yield* getOrCreateCart;
+            const now = yield* getCurrentDatetime;
+            const current = yield* ensureModifiable(now);
 
             // 1. Check if product exists first
             const productClient = yield* ProductAgent.client
@@ -110,8 +148,6 @@ export const CartAgent = CartAgentDefinition.implement({
               });
             }
 
-            const date = yield* getCurrentDatetime;
-
             if (existingIndex >= 0) {
               const updatedItems = current.items.map((item, idx) =>
                 idx === existingIndex ? { ...item, quantity: requestedTotalQuantity } : item,
@@ -120,7 +156,7 @@ export const CartAgent = CartAgentDefinition.implement({
                 ...current,
                 items: updatedItems,
                 total: getCartItemsTotalPrice(updatedItems),
-                updatedAt: date,
+                updatedAt: now,
               };
               yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
               return { userId: current.userId };
@@ -139,7 +175,7 @@ export const CartAgent = CartAgentDefinition.implement({
               ...current,
               items: newItems,
               total: getCartItemsTotalPrice(newItems),
-              updatedAt: date,
+              updatedAt: now,
             };
             yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
             return { userId: current.userId };
@@ -149,7 +185,8 @@ export const CartAgent = CartAgentDefinition.implement({
       updateItemQuantity: ({ productId, quantity }) =>
         Effect.scoped(
           Effect.gen(function* () {
-            const current = yield* getOrCreateCart;
+            const now = yield* getCurrentDatetime;
+            const current = yield* ensureModifiable(now);
             const existingIndex = current.items.findIndex((item) => item.productId === productId);
             if (existingIndex < 0) {
               return yield* Effect.fail({
@@ -178,7 +215,6 @@ export const CartAgent = CartAgentDefinition.implement({
               });
             }
 
-            const date = yield* getCurrentDatetime;
             const updatedItems = current.items.map((item, idx) =>
               idx === existingIndex ? { ...item, quantity } : item,
             );
@@ -186,7 +222,7 @@ export const CartAgent = CartAgentDefinition.implement({
               ...current,
               items: updatedItems,
               total: getCartItemsTotalPrice(updatedItems),
-              updatedAt: date,
+              updatedAt: now,
             };
             yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
             return { userId: current.userId };
@@ -195,7 +231,8 @@ export const CartAgent = CartAgentDefinition.implement({
 
       removeItem: ({ productId }) =>
         Effect.gen(function* () {
-          const current = yield* getOrCreateCart;
+          const now = yield* getCurrentDatetime;
+          const current = yield* ensureModifiable(now);
           const newItems = current.items.filter((item) => item.productId !== productId);
           if (newItems.length === current.items.length) {
             return yield* Effect.fail({
@@ -205,12 +242,11 @@ export const CartAgent = CartAgentDefinition.implement({
             });
           }
 
-          const date = yield* getCurrentDatetime;
           const updated: Cart = {
             ...current,
             items: newItems,
             total: getCartItemsTotalPrice(newItems),
-            updatedAt: date,
+            updatedAt: now,
           };
           yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
           return { userId: current.userId };
@@ -218,8 +254,8 @@ export const CartAgent = CartAgentDefinition.implement({
 
       updateBillingAddress: (address) =>
         Effect.gen(function* () {
-          const current = yield* getOrCreateCart;
-          const date = yield* getCurrentDatetime;
+          const now = yield* getCurrentDatetime;
+          const current = yield* ensureModifiable(now);
           const updated: Cart = {
             ...current,
             billingAddress: {
@@ -232,7 +268,7 @@ export const CartAgent = CartAgentDefinition.implement({
               phoneNumber: address.phoneNumber,
               email: address.email,
             },
-            updatedAt: date,
+            updatedAt: now,
           };
           yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
           return { userId: current.userId };
@@ -240,8 +276,8 @@ export const CartAgent = CartAgentDefinition.implement({
 
       updateShippingAddress: (address) =>
         Effect.gen(function* () {
-          const current = yield* getOrCreateCart;
-          const date = yield* getCurrentDatetime;
+          const now = yield* getCurrentDatetime;
+          const current = yield* ensureModifiable(now);
           const updated: Cart = {
             ...current,
             shippingAddress: {
@@ -255,7 +291,7 @@ export const CartAgent = CartAgentDefinition.implement({
               email: address.email,
             },
             email: current.email ?? address.email,
-            updatedAt: date,
+            updatedAt: now,
           };
           yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
           return { userId: current.userId };
@@ -263,21 +299,22 @@ export const CartAgent = CartAgentDefinition.implement({
 
       updateEmail: ({ email }) =>
         Effect.gen(function* () {
-          const current = yield* getOrCreateCart;
-          const date = yield* getCurrentDatetime;
+          const now = yield* getCurrentDatetime;
+          const current = yield* ensureModifiable(now);
           const updated: Cart = {
             ...current,
             email,
-            updatedAt: date,
+            updatedAt: now,
           };
           yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
           return { userId: current.userId };
         }),
 
-      checkout: () =>
+      prepareCheckout: () =>
         Effect.scoped(
           Effect.gen(function* () {
-            const current = yield* getOrCreateCart;
+            const now = yield* getCurrentDatetime;
+            const current = yield* ensureModifiable(now);
 
             if (current.items.length === 0) {
               return yield* Effect.fail({
@@ -299,19 +336,125 @@ export const CartAgent = CartAgentDefinition.implement({
             }
 
             const orderId = crypto.randomUUID();
-            const orderClient = yield* OrderAgent.client.get({ id: orderId }).pipe(Effect.orDie);
+            const expiresAt = DateTime.addDuration(
+              now,
+              Duration.seconds(CHECKOUT_RESERVATION_TTL_SECONDS),
+            );
 
+            const region = INVENTORY_REGION_DEFAULT;
+            const reservedProductIds: string[] = [];
+
+            for (const item of current.items) {
+              const invClient = yield* InventoryAgent.client
+                .get({ id: item.productId })
+                .pipe(Effect.orDie);
+              yield* invClient
+                .reserveQuantity({
+                  orderId,
+                  region,
+                  quantity: item.quantity,
+                  expiresAt,
+                })
+                .pipe(
+                  Effect.catchTag("inventory-not-found", (err) =>
+                    Effect.fail({
+                      _tag: "insufficient-stock" as const,
+                      message: err.message,
+                      productId: item.productId,
+                      region,
+                      requested: item.quantity,
+                      available: 0,
+                    }),
+                  ),
+                  Effect.catchTag("insufficient-inventory", (err) =>
+                    Effect.fail({
+                      _tag: "insufficient-stock" as const,
+                      message: err.message,
+                      productId: err.productId,
+                      region: err.region,
+                      requested: err.requested,
+                      available: err.available,
+                    }),
+                  ),
+                  orDieRpc,
+                  Effect.tapError(() =>
+                    Effect.forEach(
+                      reservedProductIds,
+                      (pid) =>
+                        InventoryAgent.client.get({ id: pid }).pipe(
+                          Effect.orDie,
+                          Effect.andThen((client) =>
+                            client.releaseReservation.trigger({ orderId }),
+                          ),
+                          Effect.ignore,
+                        ),
+                      { concurrency: "unbounded" },
+                    ),
+                  ),
+                );
+              reservedProductIds.push(item.productId);
+            }
+
+            const draft: CheckoutDraft = {
+              orderId,
+              expiresAt,
+              createdAt: now,
+            };
+
+            const updatedCart: Cart = {
+              ...current,
+              draft,
+              updatedAt: now,
+            };
+
+            yield* Ref.update(state, (curr) => ({ ...curr, cart: updatedCart }));
+            return updatedCart;
+          }),
+        ),
+
+      confirmCheckout: ({ orderId }) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const current = yield* getOrCreateCart;
+            const now = yield* getCurrentDatetime;
+
+            if (!current.draft) {
+              return yield* Effect.fail({
+                _tag: "no-active-draft" as const,
+                message: "No active checkout draft found. Please prepare checkout first.",
+              });
+            }
+
+            if (current.draft.orderId !== orderId) {
+              return yield* Effect.fail({
+                _tag: "order-mismatch" as const,
+                message: `Requested orderId ${orderId} does not match active draft ${current.draft.orderId}`,
+              });
+            }
+
+            if (DateTime.toEpochMillis(current.draft.expiresAt) <= DateTime.toEpochMillis(now)) {
+              yield* Ref.update(state, (curr) => ({
+                ...curr,
+                cart: curr.cart ? { ...curr.cart, draft: undefined, updatedAt: now } : null,
+              }));
+              return yield* Effect.fail({
+                _tag: "reservation-expired" as const,
+                message: "The checkout reservation has expired. Please prepare checkout again.",
+              });
+            }
+
+            const orderClient = yield* OrderAgent.client.get({ id: orderId }).pipe(Effect.orDie);
             yield* orderClient
               .create({
                 order: {
                   userId: current.userId,
                   items: current.items,
-                  email: current.email,
-                  billingAddress: current.billingAddress,
+                  email: current.email!,
+                  billingAddress: current.billingAddress!,
                   shippingAddress: current.shippingAddress,
                   total: current.total,
                   currency: current.currency,
-                  updatedAt: current.updatedAt,
+                  updatedAt: now,
                 },
               })
               .pipe(
@@ -333,19 +476,26 @@ export const CartAgent = CartAgentDefinition.implement({
                 ),
               );
 
-            const date = yield* getCurrentDatetime;
-            const updated: Cart = {
+            for (const item of current.items) {
+              const invClient = yield* InventoryAgent.client
+                .get({ id: item.productId })
+                .pipe(Effect.orDie);
+              yield* invClient.fulfillReservation.trigger({ orderId }).pipe(Effect.ignore);
+            }
+
+            const updatedCart: Cart = {
               ...current,
               items: [],
               total: 0,
               billingAddress: undefined,
               shippingAddress: undefined,
+              draft: undefined,
               previousOrderIds: [...current.previousOrderIds, orderId],
-              updatedAt: date,
+              updatedAt: now,
             };
-            yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
 
-            // Fire and forget recommendation trigger
+            yield* Ref.update(state, (curr) => ({ ...curr, cart: updatedCart }));
+
             const assistantClient = yield* ShoppingAssistantDefinition.client
               .get({ id: current.userId })
               .pipe(Effect.orDie);
@@ -355,19 +505,48 @@ export const CartAgent = CartAgentDefinition.implement({
           }),
         ),
 
+      cancelCheckout: ({ orderId }) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const { cart } = yield* Ref.get(state);
+            if (cart && cart.draft && cart.draft.orderId === orderId) {
+              for (const item of cart.items) {
+                const invClient = yield* InventoryAgent.client
+                  .get({ id: item.productId })
+                  .pipe(Effect.orDie);
+                yield* invClient.releaseReservation.trigger({ orderId }).pipe(Effect.ignore);
+              }
+              const now = yield* getCurrentDatetime;
+              yield* Ref.update(state, (curr) => ({
+                ...curr,
+                cart: curr.cart
+                  ? {
+                      ...curr.cart,
+                      draft: undefined,
+                      updatedAt: now,
+                    }
+                  : null,
+              }));
+            }
+          }),
+        ),
+
       clear: () =>
         Effect.gen(function* () {
-          const current = yield* getOrCreateCart;
-          const date = yield* getCurrentDatetime;
+          const now = yield* getCurrentDatetime;
+          const modifiable = yield* ensureModifiable(now).pipe(
+            Effect.catchTag("action-not-allowed", () => Effect.succeed(null)),
+          );
+          if (!modifiable) return;
           yield* Ref.update(state, (curr) => ({
             ...curr,
             cart: {
-              ...current,
+              ...modifiable,
               items: [],
               total: 0,
               billingAddress: undefined,
               shippingAddress: undefined,
-              updatedAt: date,
+              updatedAt: now,
             },
           }));
         }),
@@ -380,9 +559,19 @@ export const CartAgent = CartAgentDefinition.implement({
               return cart;
             }
 
+            const now = yield* getCurrentDatetime;
+            const activeCart = purgeExpiredDraft(cart, now);
+            if (activeCart !== cart) {
+              yield* Ref.update(state, (curr) => ({ ...curr, cart: activeCart }));
+            }
+
+            if (isInCheckout(activeCart, now)) {
+              return activeCart;
+            }
+
             const refreshedItems: CartItem[] = [];
 
-            for (const item of cart.items) {
+            for (const item of activeCart.items) {
               const productClient = yield* ProductAgent.client
                 .get({ id: item.productId })
                 .pipe(Effect.orDie);
@@ -393,7 +582,7 @@ export const CartAgent = CartAgentDefinition.implement({
                 .pipe(Effect.orDie);
               const pricing = yield* pricingClient
                 .getPrice({
-                  currency: cart.currency,
+                  currency: activeCart.currency,
                   region: PRICING_REGION_DEFAULT,
                 })
                 .pipe(Effect.orDie);
@@ -409,12 +598,11 @@ export const CartAgent = CartAgentDefinition.implement({
               }
             }
 
-            const date = yield* getCurrentDatetime;
             const updatedCart: Cart = {
-              ...cart,
+              ...activeCart,
               items: refreshedItems,
               total: getCartItemsTotalPrice(refreshedItems),
-              updatedAt: date,
+              updatedAt: now,
             };
 
             yield* Ref.update(state, (curr) => ({
@@ -455,7 +643,8 @@ export const CartAgent = CartAgentDefinition.implement({
       applySavedContactInfo: () =>
         Effect.scoped(
           Effect.gen(function* () {
-            const current = yield* getOrCreateCart;
+            const now = yield* getCurrentDatetime;
+            const current = yield* ensureModifiable(now);
             if (current.previousOrderIds.length === 0) {
               return yield* Effect.fail({
                 _tag: "address-not-valid" as const,
@@ -479,13 +668,12 @@ export const CartAgent = CartAgentDefinition.implement({
                 message: `Previous order ${lastOrderId} could not be retrieved`,
               });
             }
-            const date = yield* getCurrentDatetime;
             const updated: Cart = {
               ...current,
               shippingAddress: order.shippingAddress ?? current.shippingAddress,
               billingAddress: order.billingAddress ?? current.billingAddress,
               email: order.email ?? current.email,
-              updatedAt: date,
+              updatedAt: now,
             };
             yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
             return { userId: current.userId };
