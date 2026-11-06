@@ -14,11 +14,12 @@ This is an e-commerce application built with an agent-based architecture on [Gol
 - **Product Agent**: Manages the product catalog, details, and product metadata.
 - **Pricing Agent**: Handles product pricing, currency conversions, volume discounts, and promotions.
 - **Inventory Agent**: Manages regional product stock levels, time-bounded checkout reservations (TTL holds), and order allocations, ensuring consistency during checkout and post-checkout order modifications.
-- **Cart Agent**: Stateful per-user shopping carts that manage item additions, quantities, two-phase checkout (`prepareCheckout` → `confirmCheckout`) with locked reservation drafts, and cart-to-order conversions.
+- **Cart Agent**: Stateful per-user shopping carts that manage item additions, quantities, two-phase checkout (`prepareCheckout` → `confirmCheckout`) with locked reservation drafts, cart-to-order conversions, and asynchronous triggers for post-checkout recommendation refreshes.
 - **Order Agent**: Manages the end-to-end order lifecycle from checkout to fulfillment.
 - **Product Search Agent**: Provides catalog search with flexible query filtering (keywords, brands, tags).
 - **Order Search Agent**: Provides system-wide order search, filtering by status, user ID, or free-text query, and date sorting.
-- **Shopping Assistant Agent**: Autonomous AI assistant that plans and executes multi-turn tool calling across domain agents using durable Golem RPC.
+- **Shopping Assistant Agent**: Autonomous customer-facing AI assistant providing real-time streaming dialogue and executing multi-turn tool calling across domain agents using durable Golem RPC.
+- **Shopping Recommendation Agent**: Dedicated per-user recommendation engine that analyzes past purchase history and generates personalized product recommendations using LLM reasoning, updating asynchronously upon checkout without blocking chat execution.
 - **Manager Agent**: Autonomous AI assistant for store managers to search, modify, ship, and cancel orders, and inspect catalog/inventory.
 
 ### AI & Agent Tool Architecture (`src/ai/`)
@@ -44,12 +45,12 @@ This is an e-commerce application built with an agent-based architecture on [Gol
 ## Quick Start
 
 ### 1. Prerequisites
-- [Golem CLI](https://learn.golem.cloud/cli) (version 1.6.0+)
+- [Golem CLI](https://learn.golem.cloud/cli) (version 1.6.3+)
 - [Node.js](https://nodejs.org) (v20+)
 - Running Golem environment (local or cloud). See [Golem Quickstart](https://learn.golem.cloud/quickstart) for more information.
 
 ### 2. LLM Configuration
-The Shopping Assistant requires an LLM provider configured in `golem.yaml` under `secretDefaults.local.llm`:
+The AI agents (`ShoppingAssistantAgent`, `ShoppingRecommendationAgent`, and `ManagerAgent`) require an LLM provider configured in `golem.yaml` under `secretDefaults.local.llm`:
 
 #### Option A: Google Gemini (Default)
 Export your Gemini API key:
