@@ -15,6 +15,12 @@ const isLoading = computed(() => orderStore.isLoading);
 const error = computed(() => orderStore.error);
 
 function formatStatus(status: string) {
+  if (!status) return "";
+  const s = status.toLowerCase();
+  if (s === "new" || s === "processing") return "Processing";
+  if (s === "shipped") return "Shipped";
+  if (s === "delivered") return "Delivered";
+  if (s === "cancelled") return "Cancelled";
   return status
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
@@ -22,14 +28,17 @@ function formatStatus(status: string) {
 }
 
 function getStatusClass(status: string) {
-  switch (status) {
-    case "PROCESSING":
+  if (!status) return "status-default";
+  const s = status.toLowerCase();
+  switch (s) {
+    case "new":
+    case "processing":
       return "status-processing";
-    case "SHIPPED":
+    case "shipped":
       return "status-shipped";
-    case "DELIVERED":
+    case "delivered":
       return "status-delivered";
-    case "CANCELLED":
+    case "cancelled":
       return "status-cancelled";
     default:
       return "status-default";

@@ -97,7 +97,7 @@ export const getRecommendedProducts = async (
 ): Promise<Product[]> => {
   try {
     const recommendedItems: RecommendedItems = await apiClient.get(
-      `/v1/assistant/${userId}/recommended-items`,
+      `/v1/recommendation/${userId}/recommended-items`,
     );
     return await getProductsByIds(recommendedItems.productIds, options);
   } catch (error) {

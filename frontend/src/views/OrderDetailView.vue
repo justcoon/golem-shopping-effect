@@ -13,11 +13,14 @@ const order = computed(() => orderStore.currentOrder);
 const isLoading = computed(() => orderStore.isLoading);
 const error = computed(() => orderStore.error);
 
-const orderStatuses = [
-  { value: "PROCESSING", label: "Order Placed & Processing" },
-  { value: "SHIPPED", label: "Shipped & In Transit" },
-  { value: "DELIVERED", label: "Delivered" },
-];
+interface TimelineStep {
+  key: string;
+  label: string;
+  isActive: boolean;
+  isCompleted: boolean;
+  isCancelled: boolean;
+  description: string;
+}
 
 function formatDate(d: DateTime) {
   return formatDateTime(d, {
@@ -30,6 +33,12 @@ function formatDate(d: DateTime) {
 }
 
 function formatStatus(status: string) {
+  if (!status) return "";
+  const s = status.toLowerCase();
+  if (s === "new" || s === "processing") return "Processing";
+  if (s === "shipped") return "Shipped";
+  if (s === "delivered") return "Delivered";
+  if (s === "cancelled") return "Cancelled";
   return status
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
@@ -37,37 +46,85 @@ function formatStatus(status: string) {
 }
 
 function getStatusClass(status: string) {
-  switch (status) {
-    case "PROCESSING":
+  if (!status) return "status-default";
+  const s = status.toLowerCase();
+  switch (s) {
+    case "new":
+    case "processing":
       return "status-processing";
-    case "SHIPPED":
+    case "shipped":
       return "status-shipped";
-    case "DELIVERED":
+    case "delivered":
       return "status-delivered";
-    case "CANCELLED":
+    case "cancelled":
       return "status-cancelled";
     default:
       return "status-default";
   }
 }
 
-function isStatusActive(status: string) {
-  if (!order.value) return false;
-  return order.value.orderStatus === status;
-}
+const timelineSteps = computed<TimelineStep[]>(() => {
+  if (!order.value) return [];
+  const s = (order.value.orderStatus || "").toLowerCase();
 
-function isStatusCompleted(status: string) {
-  if (!order.value) return false;
-  const statusOrder = ["PROCESSING", "SHIPPED", "DELIVERED"];
-  const currentStatusIndex = statusOrder.indexOf(order.value.orderStatus);
-  const statusIndex = statusOrder.indexOf(status);
-  return currentStatusIndex >= statusIndex;
-}
+  if (s === "cancelled") {
+    return [
+      {
+        key: "placed",
+        label: "Order Placed",
+        isActive: false,
+        isCompleted: true,
+        isCancelled: false,
+        description: `Placed on ${formatDate(order.value.createdAt)}`,
+      },
+      {
+        key: "cancelled",
+        label: "Order Cancelled",
+        isActive: true,
+        isCompleted: false,
+        isCancelled: true,
+        description: `Cancelled on ${formatDate(order.value.updatedAt)}`,
+      },
+    ];
+  }
 
-function getStatusDate() {
-  if (!order.value) return null;
-  return order.value.updatedAt;
-}
+  const isNew = s === "new" || s === "processing";
+  const isShipped = s === "shipped";
+  const isDelivered = s === "delivered";
+
+  return [
+    {
+      key: "placed",
+      label: "Order Placed & Processing",
+      isActive: isNew,
+      isCompleted: isShipped || isDelivered,
+      isCancelled: false,
+      description: `Placed on ${formatDate(order.value.createdAt)}`,
+    },
+    {
+      key: "shipped",
+      label: "Shipped & In Transit",
+      isActive: isShipped,
+      isCompleted: isDelivered,
+      isCancelled: false,
+      description: isShipped
+        ? `Shipped on ${formatDate(order.value.updatedAt)}`
+        : isDelivered
+          ? "Completed"
+          : "Pending fulfillment",
+    },
+    {
+      key: "delivered",
+      label: "Delivered",
+      isActive: isDelivered,
+      isCompleted: isDelivered,
+      isCancelled: false,
+      description: isDelivered
+        ? `Delivered on ${formatDate(order.value.updatedAt)}`
+        : "Pending delivery",
+    },
+  ];
+});
 
 async function fetchOrder() {
   const orderId = route.params.id as string;
@@ -228,22 +285,26 @@ watch(() => route.params.id, fetchOrder);
 
             <div class="timeline">
               <div
-                v-for="status in orderStatuses"
-                :key="status.value"
+                v-for="step in timelineSteps"
+                :key="step.key"
                 class="timeline-step"
                 :class="{
-                  active: isStatusActive(status.value),
-                  completed: isStatusCompleted(status.value),
+                  active: step.isActive,
+                  completed: step.isCompleted,
+                  cancelled: step.isCancelled,
                 }"
               >
                 <div class="timeline-marker"></div>
                 <div class="timeline-content">
-                  <h4>{{ status.label }}</h4>
-                  <p v-if="isStatusActive(status.value) && getStatusDate()">
-                    Updated {{ formatDate(getStatusDate()!) }}
+                  <h4>{{ step.label }}</h4>
+                  <p
+                    :class="{
+                      'pending-label': !step.isActive && !step.isCompleted && !step.isCancelled,
+                      'cancelled-label': step.isCancelled,
+                    }"
+                  >
+                    {{ step.description }}
                   </p>
-                  <p v-else-if="isStatusCompleted(status.value)">Completed</p>
-                  <p v-else class="pending-label">Pending</p>
                 </div>
               </div>
             </div>
@@ -636,6 +697,16 @@ watch(() => route.params.id, fetchOrder);
   animation: pulse-ring 2s infinite;
 }
 
+.timeline-step.cancelled .timeline-marker {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #f87171;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+}
+
+.timeline-step.cancelled h4 {
+  color: #f87171;
+}
+
 @keyframes pulse-ring {
   0% {
     box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.6);
@@ -662,6 +733,10 @@ watch(() => route.params.id, fetchOrder);
 
 .pending-label {
   opacity: 0.5;
+}
+
+.cancelled-label {
+  color: #f87171 !important;
 }
 
 .agent-trace-note {

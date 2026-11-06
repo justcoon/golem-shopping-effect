@@ -5,8 +5,10 @@ import {
   Availability,
   Inventory,
   InventoryItem,
+  isAllocationExpired,
   mergeInventoryItems,
   OrderAllocation,
+  purgeExpiredAllocations,
   ReserveQuantityError,
 } from "./inventory-schema.js";
 
@@ -58,10 +60,11 @@ export const InventoryAgent = defineAgent({
         orderId: Schema.String,
         region: Schema.String,
         quantity: Schema.Number,
+        expiresAt: Schema.optional(Schema.DateTimeUtcFromString),
       },
       success: Schema.Void,
       error: ReserveQuantityError,
-      description: "Reserve or adjust quantity for an order",
+      description: "Reserve or adjust quantity for an order with optional expiration timestamp",
     }),
     releaseReservation: method({
       input: {
@@ -118,34 +121,34 @@ export const InventoryAgent = defineAgent({
     get: () => Ref.get(state).pipe(Effect.map(({ inventory }) => inventory)),
 
     getAvailableQuantity: ({ region }) =>
-      Ref.get(state).pipe(
-        Effect.map(({ productId, inventory }) => {
-          if (!inventory) {
-            return {
-              productId,
-              region,
-              availableQuantity: 0,
-              totalQuantity: 0,
-              allocatedQuantity: 0,
-            };
-          }
-          const item = inventory.items.find((i) => i.region === region);
-          const totalQuantity = item ? item.totalQuantity : 0;
-          const allocatedQuantity = inventory.allocations
-            .filter((a) => a.region === region)
-            .reduce((sum, a) => sum + a.quantity, 0);
-          const availableQuantity = Math.max(0, totalQuantity - allocatedQuantity);
+      Effect.gen(function* () {
+        const { productId, inventory } = yield* Ref.get(state);
+        if (!inventory) {
           return {
             productId,
             region,
-            availableQuantity,
-            totalQuantity,
-            allocatedQuantity,
+            availableQuantity: 0,
+            totalQuantity: 0,
+            allocatedQuantity: 0,
           };
-        }),
-      ),
+        }
+        const now = yield* getCurrentDatetime;
+        const item = inventory.items.find((i) => i.region === region);
+        const totalQuantity = item ? item.totalQuantity : 0;
+        const allocatedQuantity = inventory.allocations
+          .filter((a) => a.region === region && !isAllocationExpired(a, now))
+          .reduce((sum, a) => sum + a.quantity, 0);
+        const availableQuantity = Math.max(0, totalQuantity - allocatedQuantity);
+        return {
+          productId,
+          region,
+          availableQuantity,
+          totalQuantity,
+          allocatedQuantity,
+        };
+      }),
 
-    reserveQuantity: ({ orderId, region, quantity }) =>
+    reserveQuantity: ({ orderId, region, quantity, expiresAt }) =>
       Effect.gen(function* () {
         const { productId, inventory } = yield* Ref.get(state);
         if (!inventory) {
@@ -156,9 +159,12 @@ export const InventoryAgent = defineAgent({
           });
         }
 
+        const date = yield* getCurrentDatetime;
+        const activeAllocations = purgeExpiredAllocations(inventory.allocations, date);
+
         const item = inventory.items.find((i) => i.region === region);
         const totalQuantity = item ? item.totalQuantity : 0;
-        const otherAllocated = inventory.allocations
+        const otherAllocated = activeAllocations
           .filter((a) => a.region === region && a.orderId !== orderId)
           .reduce((sum, a) => sum + a.quantity, 0);
         const availableForOrder = Math.max(0, totalQuantity - otherAllocated);
@@ -174,11 +180,10 @@ export const InventoryAgent = defineAgent({
           });
         }
 
-        const date = yield* getCurrentDatetime;
-        const remainingAllocations = inventory.allocations.filter((a) => a.orderId !== orderId);
+        const remainingAllocations = activeAllocations.filter((a) => a.orderId !== orderId);
         const updatedAllocations: OrderAllocation[] =
           quantity > 0
-            ? [...remainingAllocations, { orderId, region, quantity, updatedAt: date }]
+            ? [...remainingAllocations, { orderId, region, quantity, updatedAt: date, expiresAt }]
             : remainingAllocations;
 
         const updatedInventory: Inventory = {

@@ -13,7 +13,7 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "^1.4.0",
     "@earendil-works/pi-ai": "^1.4.0",
-    "@golemcloud/effect-golem": "2.0.2",
+    "@golemcloud/effect-golem": "2.0.3",
     "@sinclair/typebox": "^0.34.52",
     "effect": "4.0.0"
   },

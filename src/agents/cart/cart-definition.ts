@@ -5,8 +5,9 @@ import {
   AddItemError,
   Cart,
   CartUpdated,
-  CheckoutError,
+  ConfirmCheckoutError,
   OrderConfirmation,
+  PrepareCheckoutError,
   RemoveItemError,
   SavedContactInfo,
   UpdateAddressError,
@@ -109,14 +110,39 @@ export const CartAgentDefinition = defineAgent({
       promptHint:
         "Call this when the user specifies or updates their email address for order notifications.",
     }),
-    checkout: method({
+    prepareCheckout: method({
       input: {},
-      success: OrderConfirmation,
-      error: CheckoutError,
-      http: [Http.post("/checkout")],
-      description: "Places the order by checking out the current shopping cart.",
+      success: Cart,
+      error: PrepareCheckoutError,
+      http: [Http.post("/checkout/prepare")],
+      description:
+        "Validates cart, reserves items in inventory for 10 minutes, and locks order ID for review.",
       promptHint:
-        "Call this to complete checkout and create the order after shipping address and contact info are confirmed.",
+        "Call this first when the user wants to checkout. Present the summary and ask for explicit confirmation.",
+    }),
+    confirmCheckout: method({
+      input: {
+        orderId: Schema.String.annotate({ description: "Order ID from prepareCheckout" }),
+      },
+      success: OrderConfirmation,
+      error: ConfirmCheckoutError,
+      http: [Http.post("/checkout/confirm")],
+      description: "Places the order using the pregenerated order ID from prepareCheckout.",
+      promptHint:
+        "ONLY call this when the user has explicitly confirmed the prepared order summary.",
+    }),
+    cancelCheckout: method({
+      input: {
+        orderId: Schema.String.annotate({
+          description: "Order ID of the active reservation to cancel",
+        }),
+      },
+      success: Schema.Void,
+      http: [Http.post("/checkout/cancel")],
+      description:
+        "Cancels an active checkout reservation, releasing reserved stock and unlocking the cart.",
+      promptHint:
+        "Call this when the user cancels checkout or wants to modify cart items during an active hold.",
     }),
     clear: method({
       input: {},

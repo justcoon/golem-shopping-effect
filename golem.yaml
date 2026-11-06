@@ -59,6 +59,7 @@ httpApi:
         ProductSearchAgent: {}
         InventoryAgent: {}
         ShoppingAssistantAgent: {}
+        ShoppingRecommendationAgent: {}
         CartAgent: {}
         OrderAgent: {}
         OrderSearchAgent: {}
@@ -72,6 +73,7 @@ httpApi:
 #        ProductSearchAgent: {}
 #        InventoryAgent: {}
 #        ShoppingAssistantAgent: {}
+        ShoppingRecommendationAgent: {}
 #        CartAgent: {}
 #        OrderAgent: {}
 #        OrderSearchAgent: {}

@@ -119,17 +119,34 @@ async fn create_and_checkout_cart(user: &mut GooseUser) -> TransactionResult {
 
     let response = user
         .post_request(
-            "cart-checkout",
-            format!("/v1/cart/{user_id}/checkout").as_str(),
-            &serde_json::Value::Null,
+            "cart-prepare-checkout",
+            format!("/v1/cart/{user_id}/checkout/prepare").as_str(),
+            &serde_json::json!({}),
         )
         .await?;
 
-    let order_created: domain::cart::OrderCreated = response.json().await?;
+    let cart: domain::cart::CartWithDraft = response.json().await?;
+    let order_id = cart
+        .draft
+        .expect("cart draft must be present after prepare-checkout")
+        .order_id;
 
-    let order_id = order_created.order_id;
+    let response = user
+        .post_request(
+            "cart-confirm-checkout",
+            format!("/v1/cart/{user_id}/checkout/confirm").as_str(),
+            &serde_json::json!({ "orderId": order_id }),
+        )
+        .await?;
 
-    let _response = user.get_request("order-get", format!("/v1/order/{order_id}").as_str()).await?;
+    let confirmation: domain::cart::OrderConfirmation = response.json().await?;
+
+    let _response = user
+        .get_request(
+            "order-get",
+            format!("/v1/order/{}", confirmation.order_id).as_str(),
+        )
+        .await?;
 
     Ok(())
 }

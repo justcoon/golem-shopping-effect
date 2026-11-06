@@ -1,11 +1,6 @@
 import { Schema } from "effect";
 import { defineAgent, defineConfig, Http, method, WitTypes } from "@golemcloud/effect-golem";
-import {
-  ChatChunk,
-  ChatMessage,
-  ChatResponse,
-  RecommendedItems,
-} from "./shopping-assistant-schema.js";
+import { ChatChunk, ChatMessage, ChatResponse } from "./shopping-assistant-schema.js";
 
 export class ShoppingAssistantConfig extends defineConfig("ShoppingAssistantAgent.Config", {
   llm: Schema.Struct({
@@ -46,18 +41,6 @@ export const ShoppingAssistantDefinition = defineAgent({
       success: Schema.Void,
       http: [Http.post("/clear-history")],
       description: "Clear conversation history with shopping assistant",
-    }),
-    getRecommendedItems: method({
-      input: {},
-      success: RecommendedItems,
-      readOnly: true,
-      http: [Http.get("/recommended-items"), Http.get("/recommendations")],
-      description: "Get recommended items state",
-    }),
-    recommendItems: method({
-      input: {},
-      success: Schema.Boolean,
-      description: "Recommend items",
     }),
   },
 });

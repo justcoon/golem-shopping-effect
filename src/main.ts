@@ -6,6 +6,7 @@ import "./agents/order-search/index.js";
 import "./agents/cart/index.js";
 import "./agents/product-search/index.js";
 import "./agents/shopping-assistant/index.js";
+import "./agents/shopping-recommendation/index.js";
 import "./agents/manager/index.js";
 import "./web.js";
 
@@ -17,4 +18,5 @@ export { OrderSearchAgent } from "./agents/order-search/index.js";
 export { CartAgent } from "./agents/cart/index.js";
 export { ProductSearchAgent } from "./agents/product-search/index.js";
 export { ShoppingAssistantAgent } from "./agents/shopping-assistant/index.js";
+export { ShoppingRecommendationAgent } from "./agents/shopping-recommendation/index.js";
 export { ManagerAgent } from "./agents/manager/index.js";
