@@ -1,17 +1,14 @@
 import { Effect, Redacted, Ref } from "effect";
-import { getCurrentDatetime } from "../../common/index.js";
 import {
   ShoppingAssistantConfig,
   ShoppingAssistantDefinition,
 } from "./shopping-assistant-definition.js";
 import { executeChatTurn, executeChatTurnStream } from "./shopping-assistant-loop.js";
-import { executeRecommendItems } from "./shopping-assistant-recommendations.js";
-import { ChatMessage, RecommendedItems } from "./shopping-assistant-schema.js";
+import { ChatMessage } from "./shopping-assistant-schema.js";
 
 interface ShoppingAssistantAgentState {
   readonly userId: string;
   readonly messages: readonly ChatMessage[];
-  readonly recommendedItems: RecommendedItems;
 }
 
 const resolveLlmConfig = Effect.gen(function* () {
@@ -26,16 +23,9 @@ const resolveLlmConfig = Effect.gen(function* () {
 export const ShoppingAssistantAgent = ShoppingAssistantDefinition.implement({
   init: ({ id }) =>
     Effect.gen(function* () {
-      const date = yield* getCurrentDatetime;
       return yield* Ref.make<ShoppingAssistantAgentState>({
         userId: id,
         messages: [],
-        recommendedItems: {
-          productIds: [],
-          productBrands: [],
-          createdAt: date,
-          updatedAt: date,
-        },
       });
     }),
   methods: (state) => ({
@@ -122,39 +112,5 @@ export const ShoppingAssistantAgent = ShoppingAssistantDefinition.implement({
 
     clearHistory: () =>
       Ref.update(state, (prev) => ({ ...prev, messages: [] })).pipe(Effect.asVoid),
-
-    getRecommendedItems: () =>
-      Ref.get(state).pipe(Effect.map(({ recommendedItems }) => recommendedItems)),
-
-    recommendItems: () =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const { userId, recommendedItems: prevItems } = yield* Ref.get(state);
-          const { apiKey, model, apiUrl } = yield* resolveLlmConfig;
-
-          const updated = yield* executeRecommendItems({
-            userId,
-            apiKey,
-            model,
-            apiUrl,
-            previousRecommendedItems: prevItems,
-          });
-
-          if (!updated) {
-            return false;
-          }
-
-          yield* Ref.update(state, (prev) => ({
-            ...prev,
-            recommendedItems: updated,
-          }));
-          return true;
-        }),
-      ).pipe(
-        Effect.catch((err) =>
-          Effect.logWarning(`recommendItems unexpected error: ${err}`).pipe(Effect.as(false)),
-        ),
-        Effect.orDie,
-      ),
   }),
 });

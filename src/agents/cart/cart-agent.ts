@@ -12,7 +12,7 @@ import { InventoryAgent } from "../inventory/index.js";
 import { Order, OrderAgent } from "../order/index.js";
 import { PricingAgent } from "../pricing/index.js";
 import { ProductAgent } from "../product/index.js";
-import { ShoppingAssistantDefinition } from "../shopping-assistant/shopping-assistant-definition.js";
+import { ShoppingRecommendationDefinition } from "../shopping-recommendation/shopping-recommendation-definition.js";
 import { CartAgentDefinition } from "./cart-definition.js";
 import { Cart, CartItem, CheckoutDraft, getCartItemsTotalPrice } from "./cart-schema.js";
 
@@ -496,10 +496,12 @@ export const CartAgent = CartAgentDefinition.implement({
 
             yield* Ref.update(state, (curr) => ({ ...curr, cart: updatedCart }));
 
-            const assistantClient = yield* ShoppingAssistantDefinition.client
+            const recommendationClient = yield* ShoppingRecommendationDefinition.client
               .get({ id: current.userId })
               .pipe(Effect.orDie);
-            yield* assistantClient.recommendItems.trigger({}).pipe(Effect.catch(() => Effect.void));
+            yield* recommendationClient.recommendItems
+              .trigger({})
+              .pipe(Effect.catch(() => Effect.void));
 
             return { userId: current.userId, orderId };
           }),

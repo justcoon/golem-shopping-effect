@@ -2,43 +2,20 @@ import { Duration, Effect } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import { Retry } from "@golemcloud/effect-golem";
 import { arrayChunks, getCurrentDatetime, safeJsonStringify } from "../../common/index.js";
-import { CartAgentDefinition } from "../cart/index.js";
+import { extractLlmErrorMessage } from "../../ai/index.js";
+import { CartAgentDefinition } from "../cart/cart-definition.js";
 import { OrderAgent, OrderItem } from "../order/index.js";
 import {
+  cleanMarkdownJsonString,
   LLMRecommendations,
   RECOMMENDATION_BRAND_COUNT,
-  RECOMMENDATION_INPUT_COUNT,
   RECOMMENDATION_PRODUCT_COUNT,
   RecommendedItems,
-} from "./shopping-assistant-schema.js";
-import { extractLlmErrorMessage } from "./shopping-assistant-loop.js";
-
-export function cleanMarkdownJsonString(input: string): string {
-  return input.replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/, "$1").trim();
-}
-
-export function reduceOrderItems(items: readonly OrderItem[]): OrderItem[] {
-  const itemMap = new Map<string, OrderItem>();
-
-  for (const item of items) {
-    const existing = itemMap.get(item.productId);
-    if (existing) {
-      itemMap.set(item.productId, {
-        ...existing,
-        quantity: existing.quantity + item.quantity,
-      });
-    } else {
-      itemMap.set(item.productId, { ...item });
-    }
-  }
-
-  return Array.from(itemMap.values())
-    .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, RECOMMENDATION_INPUT_COUNT);
-}
+  reduceOrderItems,
+} from "./shopping-recommendation-schema.js";
 
 const llmRetryPolicy = Retry.NamedPolicy.named(
-  "shopping-assistant-llm-retry",
+  "shopping-recommendation-llm-retry",
   Retry.Policy.exponential(Duration.millis(1000), 2).withJitter(0.2).maxRetries(3),
 );
 
@@ -86,7 +63,7 @@ export function executeRecommendItems(options: ExecuteRecommendItemsOptions) {
 
     if (!apiKey) {
       yield* Effect.logWarning(
-        "ShoppingAssistant: LLM API key (GEMINI_API_KEY / OPENROUTER_KEY) is empty or not configured",
+        "ShoppingRecommendation: LLM API key (GEMINI_API_KEY / OPENROUTER_KEY) is empty or not configured",
       );
       return null;
     }
