@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { Address } from "../../common/index.js";
-import { InsufficientInventoryError } from "../inventory/index.js";
+import { InsufficientInventoryError } from "../inventory/inventory-schema.js";
 
 export const OrderStatus = Schema.Union([
   Schema.Literal("new"),

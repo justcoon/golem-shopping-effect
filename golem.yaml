@@ -30,6 +30,45 @@ components:
   golem-shopping-effect:effect-main:
     dir: ""
     templates: effect
+    tools:
+      catalog-tools: {}
+      inventory-tools: {}
+      cart-tools: {}
+      customer-order-tools: {}
+      manager-order-tools: {}
+
+tools:
+  catalog-tools:
+    component: golem-shopping-effect:effect-main
+  inventory-tools:
+    component: golem-shopping-effect:effect-main
+  cart-tools:
+    component: golem-shopping-effect:effect-main
+  customer-order-tools:
+    component: golem-shopping-effect:effect-main
+  manager-order-tools:
+    component: golem-shopping-effect:effect-main
+
+mcp:
+  deployments:
+    local:
+      - subdomain: shop-mcp
+        tools:
+          catalog-tools:
+            ownerComponent: golem-shopping-effect:effect-main
+          cart-tools:
+            ownerComponent: golem-shopping-effect:effect-main
+          customer-order-tools:
+            ownerComponent: golem-shopping-effect:effect-main
+      - subdomain: admin-mcp
+        tools:
+          catalog-tools:
+            ownerComponent: golem-shopping-effect:effect-main
+          inventory-tools:
+            ownerComponent: golem-shopping-effect:effect-main
+          manager-order-tools:
+            ownerComponent: golem-shopping-effect:effect-main
+
 agents:
   WebAssistant:
     files:
