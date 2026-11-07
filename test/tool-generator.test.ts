@@ -1,13 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Effect, Result, Schema } from "effect";
-import {
-  camelToSnake,
-  createToolFromAgentMethod,
-  createToolsFromAgent,
-} from "../src/agents/shopping-assistant/shopping-assistant-tool-generator.js";
+import { camelToSnake, createToolFromAgentMethod, createToolsFromAgent } from "../src/ai/index.js";
 
-describe("Tool Generator (shopping-assistant-tool-generator)", () => {
+describe("Tool Generator", () => {
   it("converts camelCase method names to snake_case tool names", () => {
     assert.strictEqual(camelToSnake("updateBillingAddress"), "update_billing_address");
     assert.strictEqual(camelToSnake("clear"), "clear");

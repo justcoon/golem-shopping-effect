@@ -4,7 +4,7 @@ import {
   ShoppingAssistantDefinition,
 } from "./shopping-assistant-definition.js";
 import { executeChatTurn, executeChatTurnStream } from "./shopping-assistant-loop.js";
-import { ChatMessage } from "./shopping-assistant-schema.js";
+import { ChatMessage } from "../../ai/index.js";
 
 interface ShoppingAssistantAgentState {
   readonly userId: string;

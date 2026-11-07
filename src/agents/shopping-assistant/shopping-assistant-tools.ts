@@ -9,7 +9,7 @@ import {
   createToolFromAgentMethod,
   ToolContext,
   type AssistantToolDefinition,
-} from "./shopping-assistant-tool-generator.js";
+} from "../../ai/index.js";
 
 export { schemaToJsonSchema };
 

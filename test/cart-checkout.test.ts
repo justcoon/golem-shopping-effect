@@ -13,7 +13,7 @@ import {
   ConfirmCheckoutError,
   PrepareCheckoutError,
 } from "../src/agents/cart/cart-schema.js";
-import { createToolFromAgentMethod } from "../src/agents/shopping-assistant/shopping-assistant-tool-generator.js";
+import { createToolFromAgentMethod } from "../src/ai/index.js";
 
 describe("Two-Phase Checkout: Inventory Reservation & Expiration", () => {
   it("determines allocation expiration correctly", () => {
