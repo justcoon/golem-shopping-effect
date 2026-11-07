@@ -8,11 +8,11 @@
 
 ## 1. Executive Summary
 
-This implementation delivers categorized native Golem Tool definitions (`Tool.toolDefinition` from `@golemcloud/effect-golem`), wires them into `golem.yaml` for Model Context Protocol (MCP) exports across two specialized subdomains (`shop-mcp` and `admin-mcp`), and establishes a foundation for tool reuse between Golem MCP clients and internal `@earendil-works/pi-agent-core` agents (`ManagerAgent` and `ShoppingAssistantAgent`).
+This implementation delivers categorized native Golem Tool definitions (`Tool.toolDefinition` from `@golemcloud/effect-golem`), wires them into `golem.yaml` for Model Context Protocol (MCP) exports across two specialized subdomains (`shop-mcp` and `admin-mcp`), and connects both internal `@earendil-works/pi-agent-core` agents (`ManagerAgent` and `ShoppingAssistantAgent`) to reuse these tools directly via a unified adapter (`golemToolToPiAgentTools`).
 
-Public cart tools explicitly accept a `user-id` parameter, and order operations are split into customer-scoped tools (`customer-order-tools`) and back-office management tools (`manager-order-tools`).
+There is **only one single definition for every tool** — all commands are defined as Golem Tools in `src/tools/`. Redundant parallel tool definitions have been completely removed. Both the Manager and Shopping Assistant agents derive their Pi Agent tools dynamically from the Golem Tool definitions, with automatic parameter binding (e.g. injecting `user-id` from ambient session context).
 
-All automated checks passed: Prettier formatting (100%), TypeScript typecheck (0 errors), ESLint (0 errors), automated test suite (62/62 tests passing across 8 suites), and Golem WASM build & pre-initialization (`golem build --yes` succeeded).
+All automated checks passed: Prettier formatting (100%), TypeScript typecheck (0 errors), ESLint (0 errors), automated test suite (63/63 tests passing across 8 suites), and Golem WASM build & pre-initialization (`golem build --yes` succeeded).
 
 ---
 
@@ -20,51 +20,50 @@ All automated checks passed: Prettier formatting (100%), TypeScript typecheck (0
 
 ### File Modifications
 
-| Action     | File Path                                                                             | Summary of Changes                                                                                     |
-| :--------- | :------------------------------------------------------------------------------------ | :----------------------------------------------------------------------------------------------------- |
-| `[NEW]`    | [`src/tools/catalog-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/catalog-tools.ts)         | Implemented `search-products` and `get-product-details` with RPC calls to `ProductSearchAgent`.        |
-| `[NEW]`    | [`src/tools/inventory-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/inventory-tools.ts)     | Implemented `check-inventory` calling `InventoryAgent.client.get({ id: productId })`.                   |
-| `[NEW]`    | [`src/tools/cart-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/cart-tools.ts)               | Implemented `get-cart`, `add-to-cart`, `update-cart-quantity`, `remove-from-cart`, and `clear-cart`.   |
-| `[NEW]`    | [`src/tools/customer-order-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/customer-order-tools.ts) | Customer-facing order tools: `get-order-history` (by customer `user-id`) and `get-order-details`.     |
-| `[NEW]`    | [`src/tools/manager-order-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/manager-order-tools.ts)   | Administrative order tools: `search-orders`, `list-recent-orders`, `get-order-details`, `ship-order`, `cancel-order`. |
-| `[NEW]`    | [`src/tools/index.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/index.ts)                         | Barrel export for all 5 categorized tool definitions.                                                 |
-| `[MODIFY]` | [`src/main.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/main.ts)                                 | Side-effect registration and re-export of all 5 tool definitions.                                       |
-| `[MODIFY]` | [`golem.yaml`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/golem.yaml)                                   | Manifest configuration for top-level `tools:`, `components.tools`, and `mcp.deployments.local`.        |
-| `[MODIFY]` | [`src/agents/order/order-schema.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/order/order-schema.ts) | Cleaned `InsufficientInventoryError` import from schema directly, preventing WASM load errors in tests. |
-| `[NEW]`    | [`test/golem-tools.test.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/test/golem-tools.test.ts)           | Unit and integration tests for categorized tool schemas and multi-agent Pi conversion.                  |
+| Action     | File Path                                                                                                                 | Summary of Changes                                                                                                                                                 |
+| :--------- | :------------------------------------------------------------------------------------------------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[NEW]`    | [`src/tools/catalog-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/catalog-tools.ts)                 | Implemented Golem `catalogTools` (`search-products`, `get-product-details`) with `handlers`. No redundant duplicates.                                              |
+| `[NEW]`    | [`src/tools/inventory-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/inventory-tools.ts)             | Implemented Golem `inventoryTools` (`check-inventory`) with `handlers`. No redundant duplicates.                                                                   |
+| `[NEW]`    | [`src/tools/cart-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/cart-tools.ts)                       | Implemented Golem `cartTools` (`get-cart`, `add-to-cart`, etc.) with `handlers`. No redundant duplicates.                                                           |
+| `[NEW]`    | [`src/tools/customer-order-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/customer-order-tools.ts)         | Implemented Golem `customerOrderTools` (`get-order-history`, `get-order-details`) with `handlers`.                                                                 |
+| `[NEW]`    | [`src/tools/manager-order-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/manager-order-tools.ts)           | Implemented Golem `managerOrderTools` (`search-orders`, `list-recent-orders`, `get-order-details`, `ship-order`, `cancel-order`) with `handlers`.                  |
+| `[NEW]`    | [`src/tools/index.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/tools/index.ts)                                 | Barrel export for all 5 categorized Golem tool definitions and handlers.                                                                                           |
+| `[MODIFY]` | [`src/ai/pi-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/ai/pi-tools.ts)                                     | Added `golemToolToPiAgentTools` adapter that dynamically derives `AgentTool`s from Golem `ToolDefinition`s, mapping schemas, parameter binding, and execution.   |
+| `[MODIFY]` | [`src/agents/manager/manager-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/manager/manager-tools.ts)                     | `getManagerPiTools` dynamically derives catalog, inventory, and manager order tools from `catalogTools`, `inventoryTools`, and `managerOrderTools`.               |
+| `[MODIFY]` | [`src/agents/shopping-assistant/shopping-assistant-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-tools.ts) | `getShoppingAssistantPiTools` dynamically derives catalog, inventory, cart, and order tools from Golem tools, binding `user-id` from session context.            |
+| `[MODIFY]` | [`src/main.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/main.ts)                                                 | Registered all 5 Golem tools for runtime export.                                                                                                                  |
+| `[MODIFY]` | [`golem.yaml`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/golem.yaml)                                                   | Configured `tools:`, `components.tools`, and `mcp.deployments.local` (`shop-mcp` and `admin-mcp`).                                                                    |
+| `[MODIFY]` | [`test/golem-tools.test.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/test/golem-tools.test.ts)                           | Added tests verifying `golemToolToPiAgentTools` parameter binding, schema projection, and execution.                                                              |
 
 ---
 
 ### Key Logic & API Changes
 
-#### 1. Categorized Tool Organization
-Rather than bundling all operations into a single tool, operations are grouped into 5 distinct categories:
-- **`catalog-tools`**:
-  - `search-products`: Query catalog with optional currency; unwraps ephemeral `ProductSearchAgent` phantom results.
-  - `get-product-details`: Retrieve product details by ID list.
-- **`inventory-tools`**:
-  - `check-inventory`: Query stock levels, reserved quantities, and regional distribution by product ID.
-- **`cart-tools`**:
-  - Accepts explicit `user-id` option (mapped to camelCase `userId`).
-  - Implements `get-cart`, `add-to-cart`, `update-cart-quantity`, `remove-from-cart`, and `clear-cart`.
-- **`customer-order-tools`**:
-  - `get-order-history`: Queries `OrderSearchAgent` filtering strictly by `user-id`.
-  - `get-order-details`: Fetches full details for a given `order-id`.
-- **`manager-order-tools`**:
-  - `search-orders`: Multi-field search (status, customer, text, date range).
-  - `list-recent-orders`: Returns latest placed orders.
-  - `get-order-details`: Retrieves full order state.
-  - `ship-order`: Transitions order to `Shipped` and confirms inventory fulfillment.
-  - `cancel-order`: Transitions order to `Cancelled` and cancels inventory reservation.
+#### 1. Single Tool Definition via `Tool.toolDefinition`
+Every tool has only **one** definition:
+- Defined using `@golemcloud/effect-golem`'s `Tool.toolDefinition(name).command(...).implement(handlers, Layer.empty)`.
+- No separate or duplicate `createToolFromAgentMethod` definitions.
 
-#### 2. Local MCP Server Deployments (`golem.yaml`)
-Configured under `mcp.deployments.local`:
-- **`shop-mcp`**:
-  - Domain: `http://shop-mcp.localhost:9007/mcp`
-  - Includes: `catalog-tools`, `inventory-tools`, `cart-tools`, `customer-order-tools`
-- **`admin-mcp`**:
-  - Domain: `http://admin-mcp.localhost:9007/mcp`
-  - Includes: `catalog-tools`, `inventory-tools`, `manager-order-tools`
+#### 2. Dynamic Golem-to-Pi Adapter (`golemToolToPiAgentTools`)
+The adapter in [`src/ai/pi-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/ai/pi-tools.ts):
+- Iterates over `tool.definition.model.children`.
+- Maps command names to LLM tool names (e.g. `search-products` -> `search_products`).
+- Derives JSON Schema from `cmd.body.fields`.
+- If an argument is bound (e.g. `bind: { "user-id": userId }`), it strips the argument from the LLM parameters so the model is not burdened with supplying it, and injects it at execution time.
+- Executes `handlers[camelCase(cmdName)](input)` inside an Effect fiber with full context propagation.
+
+#### 3. Categorized Tool Groups
+- **`catalog-tools`**: `search-products`, `get-product-details`
+- **`inventory-tools`**: `check-inventory`
+- **`cart-tools`**: `get-cart`, `add-to-cart`, `update-cart-quantity`, `remove-from-cart`, `clear-cart` (explicit `user-id` for MCP, context-bound for assistant)
+- **`customer-order-tools`**: `get-order-history` (scoped by `user-id`), `get-order-details`
+- **`manager-order-tools`**: `search-orders`, `list-recent-orders`, `get-order-details`, `ship-order`, `cancel-order`
+
+#### 4. Local MCP Server Deployments (`golem.yaml`)
+- **`shop-mcp`** (`http://shop-mcp.localhost:9007/mcp`):
+  - `catalog-tools`, `inventory-tools`, `cart-tools`, `customer-order-tools`
+- **`admin-mcp`** (`http://admin-mcp.localhost:9007/mcp`):
+  - `catalog-tools`, `inventory-tools`, `manager-order-tools`
 
 ---
 
@@ -123,7 +122,7 @@ Building components
     Injecting JS module into QuickJS WASM
     Pre-initializing JS component into golem_shopping_effect_effect_main.preinitialized.wasm
 Writing pre-initialized component ...
-Done! Input: 22603.5 KB, Output: 84161.5 KB
+Done! Input: 22600.4 KB, Output: 83756.9 KB
   Adding metadata to golem-shopping-effect:effect-main
 
 Finished building [OK]
@@ -138,7 +137,7 @@ npm test
 ```text
 ▶ Two-Phase Checkout: Inventory Reservation & Expiration (6 passed)
 ▶ LLM Error Formatting (7 passed)
-▶ Categorized Store Tools & Multi-Agent Reuse (6 passed)
+▶ Categorized Store Tools & Multi-Agent Reuse (7 passed)
 ▶ Inventory Schema & Business Logic (3 passed)
 ▶ Manager Tools & AI Tool Generation (2 passed)
 ▶ OrderQueryMatcher (7 passed)
@@ -147,9 +146,9 @@ npm test
 ▶ Shopping Recommendation (4 passed)
 ▶ Tool Generator (11 passed)
 
-ℹ tests 62
+ℹ tests 63
 ℹ suites 8
-ℹ pass 62
+ℹ pass 63
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
@@ -161,7 +160,6 @@ npm test
 ## 4. Verification & Usage Guide
 
 ### 4.1 Running the Golem Dev Server & Deploying
-Start the local Golem development server and deploy the updated application:
 ```bash
 # In terminal 1:
 golem server run
@@ -171,18 +169,10 @@ golem deploy --yes
 ```
 
 ### 4.2 Connecting MCP Clients
-Once deployed, external MCP-compatible AI harnesses (Claude Desktop, Cursor, MCP Inspector) can connect to the local endpoints:
+- **Customer Shopping Assistant MCP**:
+  - Endpoint: `http://shop-mcp.localhost:9007/mcp`
+  - Tools: `search-products`, `get-product-details`, `check-inventory`, `get-cart`, `add-to-cart`, `update-cart-quantity`, `remove-from-cart`, `clear-cart`, `get-order-history`, `get-order-details`.
 
-1. **Customer Shopping Assistant MCP**:
-   - Endpoint: `http://shop-mcp.localhost:9007/mcp`
-   - Available tools: `search-products`, `get-product-details`, `check-inventory`, `get-cart`, `add-to-cart`, `update-cart-quantity`, `remove-from-cart`, `clear-cart`, `get-order-history`, `get-order-details`.
-
-2. **Store Manager / Admin MCP**:
-   - Endpoint: `http://admin-mcp.localhost:9007/mcp`
-   - Available tools: `search-products`, `get-product-details`, `check-inventory`, `search-orders`, `list-recent-orders`, `get-order-details`, `ship-order`, `cancel-order`.
-
-3. **Testing with MCP Inspector**:
-   ```bash
-   npx @modelcontextprotocol/inspector http://shop-mcp.localhost:9007/mcp
-   ```
-
+- **Store Manager / Admin MCP**:
+  - Endpoint: `http://admin-mcp.localhost:9007/mcp`
+  - Tools: `search-products`, `get-product-details`, `check-inventory`, `search-orders`, `list-recent-orders`, `get-order-details`, `ship-order`, `cancel-order`.

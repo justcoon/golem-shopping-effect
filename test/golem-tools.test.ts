@@ -1,7 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Effect, Schema } from "effect";
-import { createPiAgentTools, createToolFromAgentMethod } from "../src/ai/index.js";
+import {
+  createPiAgentTools,
+  createToolFromAgentMethod,
+  golemToolToPiAgentTools,
+} from "../src/ai/index.js";
 import { Cart } from "../src/agents/cart/cart-schema.js";
 import { Order, OrderStatus } from "../src/agents/order/order-schema.js";
 import { Availability } from "../src/agents/inventory/inventory-schema.js";
@@ -251,5 +255,73 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
     assert.strictEqual(piTools[0]?.name, "search_products");
     assert.strictEqual(piTools[1]?.name, "check_inventory");
     assert.strictEqual(piTools[2]?.name, "ship_order");
+  });
+
+  it("derives Pi Agent tools directly from Golem Tool definitions with parameter binding", async () => {
+    const mockGolemTool = {
+      name: "cart-tools",
+      model: {
+        name: "cart-tools",
+        children: {
+          "get-cart": {
+            name: "get-cart",
+            doc: "Get cart",
+            body: {
+              fields: { "user-id": Schema.String },
+            },
+          },
+          "add-to-cart": {
+            name: "add-to-cart",
+            doc: "Add to cart",
+            body: {
+              fields: {
+                "user-id": Schema.String,
+                "product-id": Schema.String,
+                quantity: Schema.Number,
+              },
+            },
+          },
+        },
+      },
+      handlers: {
+        getCart: (input: { "user-id": string }) =>
+          Effect.succeed({ userId: input["user-id"], items: [] }),
+        addToCart: (input: { "user-id": string; "product-id": string; quantity: number }) =>
+          Effect.succeed({
+            userId: input["user-id"],
+            added: input["product-id"],
+            qty: input.quantity,
+          }),
+      },
+    };
+
+    const piTools = golemToolToPiAgentTools(mockGolemTool, "user-456", undefined, {
+      bind: { "user-id": "user-456" },
+    });
+
+    assert.strictEqual(piTools.length, 2);
+    assert.strictEqual(piTools[0]?.name, "get_cart");
+    assert.strictEqual(piTools[1]?.name, "add_to_cart");
+
+    // In get_cart, "user-id" is bound, so parameters properties should not have user_id
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const getCartParams = piTools[0]?.parameters as any;
+    assert.strictEqual(getCartParams.properties?.user_id, undefined);
+
+    // In add_to_cart, parameters should have product_id and quantity, but not user_id
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const addParams = piTools[1]?.parameters as any;
+    assert.strictEqual(addParams.properties?.user_id, undefined);
+    assert.notStrictEqual(addParams.properties?.product_id, undefined);
+
+    // Test execution
+    const res = await piTools[1]?.execute("call-1", { product_id: "prod-1", quantity: 2 });
+    assert.strictEqual(res?.isError, undefined);
+    const firstContent = res?.content[0];
+    assert.strictEqual(firstContent?.type, "text");
+    const data = JSON.parse(firstContent && "text" in firstContent ? firstContent.text : "{}");
+    assert.strictEqual(data.userId, "user-456");
+    assert.strictEqual(data.added, "prod-1");
+    assert.strictEqual(data.qty, 2);
   });
 });
