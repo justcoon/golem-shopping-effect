@@ -35,10 +35,14 @@ export const CartAgent = CartAgentDefinition.implement({
       const initial: Cart = {
         userId,
         items: [],
+        email: null,
+        billingAddress: null,
+        shippingAddress: null,
         total: 0,
         currency: CURRENCY,
         previousOrderIds: [],
         updatedAt: now,
+        draft: null,
       };
       yield* Ref.update(state, (curr) => ({ ...curr, cart: initial }));
       return initial;
@@ -51,7 +55,7 @@ export const CartAgent = CartAgentDefinition.implement({
       ) {
         return {
           ...cart,
-          draft: undefined,
+          draft: null,
           updatedAt: now,
         };
       }
@@ -264,9 +268,9 @@ export const CartAgent = CartAgentDefinition.implement({
               stateOrRegion: address.stateOrRegion,
               country: address.country,
               postalCode: address.postalCode,
-              name: address.name,
-              phoneNumber: address.phoneNumber,
-              email: address.email,
+              name: address.name ?? null,
+              phoneNumber: address.phoneNumber ?? null,
+              email: address.email ?? null,
             },
             updatedAt: now,
           };
@@ -286,11 +290,11 @@ export const CartAgent = CartAgentDefinition.implement({
               stateOrRegion: address.stateOrRegion,
               country: address.country,
               postalCode: address.postalCode,
-              name: address.name,
-              phoneNumber: address.phoneNumber,
-              email: address.email,
+              name: address.name ?? null,
+              phoneNumber: address.phoneNumber ?? null,
+              email: address.email ?? null,
             },
-            email: current.email ?? address.email,
+            email: current.email ?? address.email ?? null,
             updatedAt: now,
           };
           yield* Ref.update(state, (curr) => ({ ...curr, cart: updated }));
@@ -435,7 +439,7 @@ export const CartAgent = CartAgentDefinition.implement({
             if (DateTime.toEpochMillis(current.draft.expiresAt) <= DateTime.toEpochMillis(now)) {
               yield* Ref.update(state, (curr) => ({
                 ...curr,
-                cart: curr.cart ? { ...curr.cart, draft: undefined, updatedAt: now } : null,
+                cart: curr.cart ? { ...curr.cart, draft: null, updatedAt: now } : null,
               }));
               return yield* Effect.fail({
                 _tag: "reservation-expired" as const,
@@ -451,7 +455,7 @@ export const CartAgent = CartAgentDefinition.implement({
                   items: current.items,
                   email: current.email!,
                   billingAddress: current.billingAddress!,
-                  shippingAddress: current.shippingAddress,
+                  shippingAddress: current.shippingAddress ?? undefined,
                   total: current.total,
                   currency: current.currency,
                   updatedAt: now,
@@ -487,9 +491,9 @@ export const CartAgent = CartAgentDefinition.implement({
               ...current,
               items: [],
               total: 0,
-              billingAddress: undefined,
-              shippingAddress: undefined,
-              draft: undefined,
+              billingAddress: null,
+              shippingAddress: null,
+              draft: null,
               previousOrderIds: [...current.previousOrderIds, orderId],
               updatedAt: now,
             };
@@ -524,7 +528,7 @@ export const CartAgent = CartAgentDefinition.implement({
                 cart: curr.cart
                   ? {
                       ...curr.cart,
-                      draft: undefined,
+                      draft: null,
                       updatedAt: now,
                     }
                   : null,
@@ -546,8 +550,8 @@ export const CartAgent = CartAgentDefinition.implement({
               ...modifiable,
               items: [],
               total: 0,
-              billingAddress: undefined,
-              shippingAddress: undefined,
+              billingAddress: null,
+              shippingAddress: null,
               updatedAt: now,
             },
           }));

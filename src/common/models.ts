@@ -6,9 +6,9 @@ export const Address = Schema.Struct({
   stateOrRegion: Schema.String,
   country: Schema.String,
   postalCode: Schema.String,
-  name: Schema.optional(Schema.String),
-  phoneNumber: Schema.optional(Schema.String),
-  email: Schema.optional(Schema.String),
+  name: Schema.NullOr(Schema.String),
+  phoneNumber: Schema.NullOr(Schema.String),
+  email: Schema.NullOr(Schema.String),
 });
 
 export type Address = typeof Address.Type;

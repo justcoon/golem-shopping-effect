@@ -18,7 +18,7 @@ export const ProductWithPrice = Schema.Struct({
   description: Schema.String,
   tags: Schema.Array(Schema.String),
   price: Schema.NullOr(PricingItem),
-  availableQuantity: Schema.optional(Schema.Number),
+  availableQuantity: Schema.NullOr(Schema.Number),
   createdAt: Schema.DateTimeUtcFromString,
   updatedAt: Schema.DateTimeUtcFromString,
 });

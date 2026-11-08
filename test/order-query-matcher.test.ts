@@ -35,6 +35,8 @@ describe("OrderQueryMatcher", () => {
       country: "USA",
       postalCode: "94103",
       name: "Alice Johnson",
+      phoneNumber: null,
+      email: null,
     },
     billingAddress: {
       street: "123 Market St",
@@ -43,6 +45,8 @@ describe("OrderQueryMatcher", () => {
       country: "USA",
       postalCode: "94103",
       name: "Alice Johnson",
+      phoneNumber: null,
+      email: null,
     },
     total: 547,
     currency: "USD",
