@@ -1,4 +1,5 @@
 import { Context, Effect, Schema } from "effect";
+import type { Tool } from "@golemcloud/effect-golem";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { TSchema } from "@sinclair/typebox";
 import { safeJsonStringify, schemaToJsonSchema } from "../common/index.js";
@@ -145,25 +146,6 @@ export interface ToolClientLike {
     ((input: unknown, ...args: unknown[]) => Effect.Effect<unknown, unknown, unknown>) | unknown;
 }
 
-export interface ToolDefinitionLike {
-  readonly name?: string;
-  readonly model?: {
-    readonly name?: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    readonly children?: Record<string, any>;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    readonly body?: any;
-  };
-  readonly definition?: {
-    readonly name?: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    readonly model?: any;
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly client?: (options?: any) => any;
-  readonly handlers?: ToolClientLike;
-}
-
 export interface GolemToolAdapterOptions {
   readonly bind?: Record<string, unknown | ((ctx: ToolContext) => unknown)>;
   readonly loggerNamespace?: string;
@@ -180,31 +162,39 @@ function resolveBoundValue(
   return typeof getter === "function" ? (getter as (c: ToolContext) => unknown)(ctx) : getter;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type GolemToolDefinition = Tool.ToolDefinition<string, any>;
+
 /**
  * Derives Pi Agent tools (`AgentTool`) directly from a Golem ToolDefinition (`Tool.toolDefinition`).
- * Dynamically converts command schemas, binds context arguments (e.g. userId), and invokes commands via the Golem Tool client or local handlers.
+ * Dynamically converts command schemas, binds context arguments (e.g. userId), and invokes commands via the Golem Tool client.
  */
 export function golemToolToPiAgentTools(
-  tool: ToolDefinitionLike,
+  tool: GolemToolDefinition,
   toolContext: ToolContext | string,
   context?: Context.Context<never>,
   options: GolemToolAdapterOptions = {},
 ): AgentTool<TSchema>[] {
-  const model = tool.model ?? tool.definition?.model;
+  const model = tool.model;
   if (!model?.children) {
     return [];
   }
 
-  let client = options.client;
-  if (!client && typeof tool.client === "function") {
+  const toolWithClient = tool as {
+    client?: () => ToolClientLike;
+    handlers?: ToolClientLike;
+  };
+
+  let client: ToolClientLike | undefined = options.client;
+  if (!client && typeof toolWithClient.client === "function") {
     try {
-      client = tool.client();
+      client = toolWithClient.client();
     } catch {
       // fallback to handlers if client construction fails
     }
   }
   if (!client) {
-    client = tool.handlers;
+    client = toolWithClient.handlers;
   }
   const ctx: ToolContext = typeof toolContext === "string" ? { userId: toolContext } : toolContext;
   const contextId = ctx.userId ?? ctx.managerId ?? "system";

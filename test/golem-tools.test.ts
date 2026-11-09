@@ -5,6 +5,7 @@ import {
   createPiAgentTools,
   createToolFromAgentMethod,
   golemToolToPiAgentTools,
+  type GolemToolDefinition,
 } from "../src/ai/index.js";
 import { Cart } from "../src/agents/cart/cart-schema.js";
 import { Order, OrderStatus } from "../src/agents/order/order-schema.js";
@@ -309,7 +310,7 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
       client: () => mockToolClient,
     };
 
-    const piTools = golemToolToPiAgentTools(mockToolDefinition, "user-456", undefined, {
+    const piTools = golemToolToPiAgentTools(mockToolDefinition as any, "user-456", undefined, {
       bind: { "user-id": "user-456" },
     });
 
@@ -371,7 +372,10 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
     };
 
     // When called with definition directly
-    const defaultTools = golemToolToPiAgentTools(mockDefinition, "user-1");
+    const defaultTools = golemToolToPiAgentTools(
+      mockDefinition as unknown as GolemToolDefinition,
+      "user-1",
+    );
     const defaultRes = await defaultTools[0]?.execute("c1", { task_name: "backup" });
     const defaultData = JSON.parse(
       defaultRes?.content[0] && "text" in defaultRes.content[0] ? defaultRes.content[0].text : "{}",
@@ -385,9 +389,14 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
         Effect.succeed({ clientRun: "fromOptions", task: input.taskName }),
     };
 
-    const overrideTools = golemToolToPiAgentTools(mockDefinition, "user-1", undefined, {
-      client: customClient,
-    });
+    const overrideTools = golemToolToPiAgentTools(
+      mockDefinition as unknown as GolemToolDefinition,
+      "user-1",
+      undefined,
+      {
+        client: customClient,
+      },
+    );
     const overrideRes = await overrideTools[0]?.execute("c2", { task_name: "cleanup" });
     const overrideData = JSON.parse(
       overrideRes?.content[0] && "text" in overrideRes.content[0]
@@ -423,7 +432,10 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
       },
     };
 
-    const tools = golemToolToPiAgentTools(guestDefinition, "guest-user");
+    const tools = golemToolToPiAgentTools(
+      guestDefinition as unknown as GolemToolDefinition,
+      "guest-user",
+    );
     assert.strictEqual(tools.length, 1);
 
     const res = await tools[0]?.execute("c3", { action_name: "index-sync" });
