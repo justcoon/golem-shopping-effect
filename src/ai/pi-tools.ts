@@ -147,48 +147,27 @@ export interface ToolClientLike {
 
 export interface ToolDefinitionLike {
   readonly name?: string;
-  readonly model: {
+  readonly model?: {
     readonly name?: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     readonly children?: Record<string, any>;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     readonly body?: any;
   };
+  readonly definition?: {
+    readonly name?: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    readonly model?: any;
+  };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly client?: (options?: any) => any;
   readonly handlers?: ToolClientLike;
 }
 
-export interface ToolSdkLike {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly client?: (definition: any, options?: any) => any;
-  readonly registeredTools?: () => ReadonlyArray<{
-    readonly definition?: { readonly name: string };
-    readonly name?: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    readonly implementation?: any;
-  }>;
-}
-
-let ambientToolSdk: ToolSdkLike | undefined;
-
-/**
- * Registers an ambient Golem Tool SDK instance (such as `Tool` from `@golemcloud/effect-golem`).
- * Allows in-guest tool resolution and client creation without top-level static imports that break Node.js.
- */
-export function registerToolSdk(sdk: ToolSdkLike): void {
-  ambientToolSdk = sdk;
-}
-
-export type ToolDefinitionInput = ToolDefinitionLike | { readonly definition: ToolDefinitionLike };
-
 export interface GolemToolAdapterOptions {
   readonly bind?: Record<string, unknown | ((ctx: ToolContext) => unknown)>;
   readonly loggerNamespace?: string;
   readonly client?: ToolClientLike;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly clientOptions?: any;
-  readonly toolSdk?: ToolSdkLike;
 }
 
 function resolveBoundValue(
@@ -206,42 +185,35 @@ function resolveBoundValue(
  * Dynamically converts command schemas, binds context arguments (e.g. userId), and invokes commands via the Golem Tool client or local handlers.
  */
 export function golemToolToPiAgentTools(
-  tool: ToolDefinitionInput,
+  tool: ToolDefinitionLike,
   toolContext: ToolContext | string,
   context?: Context.Context<never>,
   options: GolemToolAdapterOptions = {},
 ): AgentTool<TSchema>[] {
-  const definition: ToolDefinitionLike =
-    "definition" in tool && tool.definition ? tool.definition : (tool as ToolDefinitionLike);
-  const model = definition.model;
+  const model = tool.model ?? tool.definition?.model;
   if (!model?.children) {
     return [];
   }
 
-  const toolNameIdentifier = model.name;
-  const toolSdk = options.toolSdk ?? ambientToolSdk;
-
-  // Look up registered implementation (if implemented in this component)
-  const registered = toolSdk?.registeredTools?.().find(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (t: any) => t.definition?.name === toolNameIdentifier || t.name === toolNameIdentifier,
-  );
-
-  const client: ToolClientLike | undefined =
-    options.client ??
-    definition.handlers ??
-    registered?.implementation ??
-    (typeof toolSdk?.client === "function"
-      ? toolSdk.client(definition, options.clientOptions)
-      : typeof definition.client === "function"
-        ? definition.client(options.clientOptions)
-        : undefined);
+  let client = options.client;
+  if (!client && typeof tool.client === "function") {
+    try {
+      client = tool.client();
+    } catch {
+      // fallback to handlers if client construction fails
+    }
+  }
+  if (!client) {
+    client = tool.handlers;
+  }
   const ctx: ToolContext = typeof toolContext === "string" ? { userId: toolContext } : toolContext;
   const contextId = ctx.userId ?? ctx.managerId ?? "system";
   const loggerNamespace = options.loggerNamespace ?? `[GolemTool:${model.name ?? "tool"}]`;
   const bind = options.bind ?? {};
 
-  return Object.entries(model.children).map(([cmdName, cmd]) => {
+  return Object.entries(model.children).map(([cmdName, cmdRaw]) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cmd = cmdRaw as any;
     const toolName = toSnakeCase(cmdName);
     const label = toHumanLabel(toolName);
     const description = typeof cmd.doc === "string" ? cmd.doc : (cmd.body?.description ?? "");

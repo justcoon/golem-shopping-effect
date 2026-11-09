@@ -1,8 +1,7 @@
 import { Tool } from "@golemcloud/effect-golem";
-import { registerToolSdk } from "../ai/pi-tools.js";
 
-// Register Golem Tool SDK to enable in-guest Tool.client & registeredTools resolution
-registerToolSdk(Tool);
+// Keep Tool client runtime linked so toolDefinition.client() is available in guest
+void Tool.client;
 
 export * from "./catalog-tools.js";
 export * from "./inventory-tools.js";
