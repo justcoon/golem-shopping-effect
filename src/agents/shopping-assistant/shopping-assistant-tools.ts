@@ -1,4 +1,5 @@
 import { Context, Result } from "effect";
+import { Tool } from "@golemcloud/effect-golem";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { TSchema } from "@sinclair/typebox";
 import { schemaToJsonSchema } from "../../common/index.js";
@@ -151,16 +152,20 @@ export function getShoppingAssistantPiTools(
 ): AgentTool<TSchema>[] {
   const golemTools = [
     ...golemToolToPiAgentTools(catalogTools, { userId }, context, {
+      client: Tool.client(catalogTools),
       loggerNamespace: "[ShoppingAssistant]",
     }),
     ...golemToolToPiAgentTools(inventoryTools, { userId }, context, {
+      client: Tool.client(inventoryTools),
       loggerNamespace: "[ShoppingAssistant]",
     }),
     ...golemToolToPiAgentTools(cartTools, { userId }, context, {
+      client: Tool.client(cartTools),
       bind: { "user-id": userId },
       loggerNamespace: "[ShoppingAssistant]",
     }),
     ...golemToolToPiAgentTools(customerOrderTools, { userId }, context, {
+      client: Tool.client(customerOrderTools),
       bind: { "user-id": userId },
       loggerNamespace: "[ShoppingAssistant]",
     }),

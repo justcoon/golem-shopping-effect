@@ -1,4 +1,5 @@
 import { Context, Result, Schema } from "effect";
+import { Tool } from "@golemcloud/effect-golem";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { TSchema } from "@sinclair/typebox";
 import {
@@ -116,12 +117,15 @@ export function getManagerPiTools(
 ): AgentTool<TSchema>[] {
   const golemTools = [
     ...golemToolToPiAgentTools(catalogTools, { managerId }, context, {
+      client: Tool.client(catalogTools),
       loggerNamespace: "[ManagerAgent]",
     }),
     ...golemToolToPiAgentTools(inventoryTools, { managerId }, context, {
+      client: Tool.client(inventoryTools),
       loggerNamespace: "[ManagerAgent]",
     }),
     ...golemToolToPiAgentTools(managerOrderTools, { managerId }, context, {
+      client: Tool.client(managerOrderTools),
       loggerNamespace: "[ManagerAgent]",
     }),
   ];
