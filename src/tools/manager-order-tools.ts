@@ -13,30 +13,32 @@ const getOrderClient = (orderId: string) =>
 
 export const managerOrderToolHandlers = {
   searchOrders: (input: {
-    query?: string;
-    status?: typeof OrderStatus.Type;
-    "user-id"?: string;
-    limit?: number;
+    query?: string | null;
+    status?: typeof OrderStatus.Type | null;
+    "user-id"?: string | null;
+    limit?: number | null;
   }) =>
     Effect.scoped(
       Effect.gen(function* () {
         const client = yield* getOrderSearchClient;
         const res = yield* client
           .searchOrders({
-            query: input.query,
-            status: input.status,
-            userId: input["user-id"],
-            limit: input.limit,
+            query: input.query ?? undefined,
+            status: input.status ?? undefined,
+            userId: input["user-id"] ?? undefined,
+            limit: input.limit ?? undefined,
           })
           .pipe(Effect.orDie);
         return res;
       }),
     ),
-  listRecentOrders: (input: { limit?: number }) =>
+  listRecentOrders: (input: { limit?: number | null }) =>
     Effect.scoped(
       Effect.gen(function* () {
         const client = yield* getOrderSearchClient;
-        const res = yield* client.getRecentOrders({ limit: input.limit }).pipe(Effect.orDie);
+        const res = yield* client
+          .getRecentOrders({ limit: input.limit ?? undefined })
+          .pipe(Effect.orDie);
         return res;
       }),
     ),
@@ -71,66 +73,80 @@ export const managerOrderToolHandlers = {
     ),
 };
 
-export const managerOrderTools = Object.assign(
-  Tool.toolDefinition("manager-order-tools", {
-    doc: "Store manager tools for order search, fulfillment, and lifecycle management",
-  })
-    .command("search-orders", (cmd) =>
-      cmd.body((b) =>
-        b
-          .option("query", Schema.optional(Schema.String), {
-            doc: "Free-text query across products, email, or customer name",
-          })
-          .option("status", Schema.optional(OrderStatus), {
-            doc: "Filter by order status: 'new', 'shipped', or 'cancelled'",
-          })
-          .option("user-id", Schema.optional(Schema.String), {
-            doc: "Filter by customer user ID",
-          })
-          .option("limit", Schema.optional(Schema.Number), {
-            doc: "Maximum number of orders to return",
-          })
-          .returns(Schema.Array(Order), { doc: "Matching orders across the system" }),
-      ),
-    )
-    .command("list-recent-orders", (cmd) =>
-      cmd.body((b) =>
-        b
-          .option("limit", Schema.optional(Schema.Number), {
-            doc: "Maximum number of recent orders to return (defaults to 10)",
-          })
-          .returns(Schema.Array(Order), { doc: "Most recent orders placed in the store" }),
-      ),
-    )
-    .command("get-order-details", (cmd) =>
-      cmd.body((b) =>
-        b
-          .option("order-id", Schema.String, { doc: "Order ID (e.g. ord-123)" })
-          .returns(Schema.NullOr(Order), { doc: "Order details or null if not found" }),
-      ),
-    )
-    .command("ship-order", (cmd) =>
-      cmd.body((b) =>
-        b.option("order-id", Schema.String, { doc: "Order ID to fulfill and ship" }).returns(
+export const managerOrderToolDefinition = Tool.toolDefinition("manager-order-tools", {
+  doc: "Store manager tools for order search, fulfillment, and lifecycle management",
+})
+  .command("search-orders", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("query", Schema.String, {
+          doc: "Free-text query across products, email, or customer name",
+        })
+        .option("status", OrderStatus, {
+          doc: "Filter by order status: 'new', 'shipped', or 'cancelled'",
+        })
+        .option("user-id", Schema.String, {
+          doc: "Filter by customer user ID",
+        })
+        .option("limit", Schema.Number, {
+          doc: "Maximum number of orders to return",
+        })
+        .returns(Schema.Array(Order), { doc: "Matching orders across the system" }),
+    ),
+  )
+  .command("list-recent-orders", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("limit", Schema.Number, {
+          doc: "Maximum number of recent orders to return (defaults to 10)",
+        })
+        .returns(Schema.Array(Order), { doc: "Most recent orders placed in the store" }),
+    ),
+  )
+  .command("get-order-details", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("order-id", Schema.String, {
+          doc: "Order ID (e.g. ord-123)",
+          required: true,
+        })
+        .returns(Schema.NullOr(Order), { doc: "Order details or null if not found" }),
+    ),
+  )
+  .command("ship-order", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("order-id", Schema.String, {
+          doc: "Order ID to fulfill and ship",
+          required: true,
+        })
+        .returns(
           Schema.Struct({
             orderId: Schema.String,
             status: Schema.Literal("shipped"),
           }),
           { doc: "Fulfillment confirmation" },
         ),
-      ),
-    )
-    .command("cancel-order", (cmd) =>
-      cmd.body((b) =>
-        b.option("order-id", Schema.String, { doc: "Order ID to cancel" }).returns(
+    ),
+  )
+  .command("cancel-order", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("order-id", Schema.String, {
+          doc: "Order ID to cancel",
+          required: true,
+        })
+        .returns(
           Schema.Struct({
             orderId: Schema.String,
             status: Schema.Literal("cancelled"),
           }),
           { doc: "Cancellation confirmation" },
         ),
-      ),
-    )
-    .implement(managerOrderToolHandlers, Layer.empty),
-  { handlers: managerOrderToolHandlers },
-);
+    ),
+  );
+
+// Register provider implementation with Golem runtime
+managerOrderToolDefinition.implement(managerOrderToolHandlers, Layer.empty);
+
+export const managerOrderTools = managerOrderToolDefinition;

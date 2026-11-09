@@ -257,8 +257,25 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
     assert.strictEqual(piTools[2]?.name, "ship_order");
   });
 
-  it("derives Pi Agent tools directly from Golem Tool definitions with parameter binding", async () => {
-    const mockGolemTool = {
+  it("derives Pi Agent tools directly from Golem Tool definitions with tool client and parameter binding", async () => {
+    let clientCalledWith: Record<string, unknown> | undefined;
+
+    const mockToolClient = {
+      getCart: (input: { userId: string }) => {
+        clientCalledWith = input;
+        return Effect.succeed({ userId: input.userId, items: [] });
+      },
+      addToCart: (input: { userId: string; productId: string; quantity: number }) => {
+        clientCalledWith = input;
+        return Effect.succeed({
+          userId: input.userId,
+          added: input.productId,
+          qty: input.quantity,
+        });
+      },
+    };
+
+    const mockToolDefinition = {
       name: "cart-tools",
       model: {
         name: "cart-tools",
@@ -268,6 +285,7 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
             doc: "Get cart",
             body: {
               fields: { "user-id": Schema.String },
+              args: [{ name: "user-id", kind: "option", options: { required: true } }],
             },
           },
           "add-to-cart": {
@@ -279,23 +297,19 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
                 "product-id": Schema.String,
                 quantity: Schema.Number,
               },
+              args: [
+                { name: "user-id", kind: "option", options: { required: true } },
+                { name: "product-id", kind: "option", options: { required: true } },
+                { name: "quantity", kind: "option", options: {} },
+              ],
             },
           },
         },
       },
-      handlers: {
-        getCart: (input: { "user-id": string }) =>
-          Effect.succeed({ userId: input["user-id"], items: [] }),
-        addToCart: (input: { "user-id": string; "product-id": string; quantity: number }) =>
-          Effect.succeed({
-            userId: input["user-id"],
-            added: input["product-id"],
-            qty: input.quantity,
-          }),
-      },
+      client: () => mockToolClient,
     };
 
-    const piTools = golemToolToPiAgentTools(mockGolemTool, "user-456", undefined, {
+    const piTools = golemToolToPiAgentTools(mockToolDefinition, "user-456", undefined, {
       bind: { "user-id": "user-456" },
     });
 
@@ -314,14 +328,73 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
     assert.strictEqual(addParams.properties?.user_id, undefined);
     assert.notStrictEqual(addParams.properties?.product_id, undefined);
 
-    // Test execution
+    // Test execution invokes tool client with camelCase parameters
     const res = await piTools[1]?.execute("call-1", { product_id: "prod-1", quantity: 2 });
     assert.strictEqual(res?.isError, undefined);
+    assert.deepStrictEqual(clientCalledWith, {
+      userId: "user-456",
+      "user-id": "user-456",
+      user_id: "user-456",
+      productId: "prod-1",
+      "product-id": "prod-1",
+      product_id: "prod-1",
+      quantity: 2,
+    });
     const firstContent = res?.content[0];
     assert.strictEqual(firstContent?.type, "text");
     const data = JSON.parse(firstContent && "text" in firstContent ? firstContent.text : "{}");
     assert.strictEqual(data.userId, "user-456");
     assert.strictEqual(data.added, "prod-1");
     assert.strictEqual(data.qty, 2);
+  });
+
+  it("supports passing ToolDefinition directly or overriding client in options", async () => {
+    const mockDefinition = {
+      name: "custom-tools",
+      model: {
+        name: "custom-tools",
+        children: {
+          "do-task": {
+            name: "do-task",
+            doc: "Do task",
+            body: {
+              fields: { "task-name": Schema.String },
+              args: [{ name: "task-name", kind: "option", options: { required: true } }],
+            },
+          },
+        },
+      },
+      client: () => ({
+        doTask: (input: { taskName: string }) =>
+          Effect.succeed({ clientRun: "fromDefinition", task: input.taskName }),
+      }),
+    };
+
+    // When called with definition directly
+    const defaultTools = golemToolToPiAgentTools(mockDefinition, "user-1");
+    const defaultRes = await defaultTools[0]?.execute("c1", { task_name: "backup" });
+    const defaultData = JSON.parse(
+      defaultRes?.content[0] && "text" in defaultRes.content[0] ? defaultRes.content[0].text : "{}",
+    );
+    assert.strictEqual(defaultData.clientRun, "fromDefinition");
+    assert.strictEqual(defaultData.task, "backup");
+
+    // When client is passed via options, it overrides definition.client
+    const customClient = {
+      doTask: (input: { taskName: string }) =>
+        Effect.succeed({ clientRun: "fromOptions", task: input.taskName }),
+    };
+
+    const overrideTools = golemToolToPiAgentTools(mockDefinition, "user-1", undefined, {
+      client: customClient,
+    });
+    const overrideRes = await overrideTools[0]?.execute("c2", { task_name: "cleanup" });
+    const overrideData = JSON.parse(
+      overrideRes?.content[0] && "text" in overrideRes.content[0]
+        ? overrideRes.content[0].text
+        : "{}",
+    );
+    assert.strictEqual(overrideData.clientRun, "fromOptions");
+    assert.strictEqual(overrideData.task, "cleanup");
   });
 });

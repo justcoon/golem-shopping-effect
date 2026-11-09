@@ -105,45 +105,56 @@ export function createPiAgentTools(
   return tools.map((t) => toPiAgentTool(t, toolContext, context, loggerNamespace));
 }
 
-export interface GolemToolDefinitionLike {
+export interface ToolClientLike {
+  readonly [methodName: string]:
+    ((input: unknown, ...args: unknown[]) => Effect.Effect<unknown, unknown, unknown>) | unknown;
+}
+
+export interface ToolDefinitionLike {
   readonly name?: string;
-  readonly definition?: {
-    readonly model: {
-      readonly name: string;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      readonly children: Record<string, any>;
-    };
-  };
-  readonly model?: {
-    readonly name: string;
+  readonly model: {
+    readonly name?: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    readonly children: Record<string, any>;
+    readonly children?: Record<string, any>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    readonly body?: any;
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly handlers?: Record<string, (input: any) => Effect.Effect<any, any, any>>;
+  readonly client?: (options?: any) => any;
 }
+
+export type ToolDefinitionInput = ToolDefinitionLike | { readonly definition: ToolDefinitionLike };
 
 export interface GolemToolAdapterOptions {
   readonly bind?: Record<string, unknown | ((ctx: ToolContext) => unknown)>;
   readonly loggerNamespace?: string;
+  readonly client?: ToolClientLike;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly clientOptions?: any;
 }
 
 /**
- * Derives Pi Agent tools (`AgentTool`) directly from a native Golem Tool definition (`Tool.toolDefinition`).
- * Dynamically converts command schemas, binds context arguments (e.g. userId), and executes the Golem handler.
+ * Derives Pi Agent tools (`AgentTool`) directly from a Golem ToolDefinition (`Tool.toolDefinition`).
+ * Dynamically converts command schemas, binds context arguments (e.g. userId), and invokes commands via the Golem Tool client.
  */
 export function golemToolToPiAgentTools(
-  tool: GolemToolDefinitionLike,
+  tool: ToolDefinitionInput,
   toolContext: ToolContext | string,
   context?: Context.Context<never>,
   options: GolemToolAdapterOptions = {},
 ): AgentTool<TSchema>[] {
-  const model = tool.definition?.model ?? tool.model;
+  const definition: ToolDefinitionLike =
+    "definition" in tool && tool.definition ? tool.definition : (tool as ToolDefinitionLike);
+  const model = definition.model;
   if (!model?.children) {
     return [];
   }
 
-  const handlers = tool.handlers ?? {};
+  const client: ToolClientLike | undefined =
+    options.client ??
+    (typeof definition.client === "function"
+      ? definition.client(options.clientOptions)
+      : undefined);
   const ctx: ToolContext = typeof toolContext === "string" ? { userId: toolContext } : toolContext;
   const contextId = ctx.userId ?? ctx.managerId ?? "system";
   const loggerNamespace = options.loggerNamespace ?? `[GolemTool:${model.name ?? "tool"}]`;
@@ -164,6 +175,8 @@ export function golemToolToPiAgentTools(
     // Filter out bound parameters from LLM schema
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const activeFields: Record<string, Schema.Schema<any>> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const args: any[] = cmd.body?.args ?? [];
     for (const [k, fieldSchema] of Object.entries(rawFields)) {
       const isBound =
         k in bind ||
@@ -171,14 +184,21 @@ export function golemToolToPiAgentTools(
         k.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase()) in bind;
       if (!isBound) {
         const paramName = k.replace(/-/g, "_");
-        activeFields[paramName] = fieldSchema;
+        const argDef = args.find((a) => a.name === k);
+        const isRequired = argDef?.options?.required === true || argDef?.kind === "positional";
+        activeFields[paramName] = isRequired ? fieldSchema : Schema.optional(fieldSchema);
       }
     }
 
     const structSchema = Schema.Struct(activeFields);
     const jsonSchema = schemaToJsonSchema(structSchema) as TSchema;
-    const camelHandlerName = cmdName.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
-    const handler = handlers[camelHandlerName];
+    const camelMethodName = cmdName.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
+    const clientMethod =
+      typeof client?.[camelMethodName] === "function"
+        ? (client[camelMethodName] as (input: unknown) => Effect.Effect<unknown, unknown, unknown>)
+        : typeof client?.[cmdName] === "function"
+          ? (client[cmdName] as (input: unknown) => Effect.Effect<unknown, unknown, unknown>)
+          : undefined;
 
     piTools.push({
       name: toolName,
@@ -189,30 +209,39 @@ export function golemToolToPiAgentTools(
         try {
           const rawParams =
             params && typeof params === "object" ? (params as Record<string, unknown>) : {};
-          const input: Record<string, unknown> = {};
+          const clientInput: Record<string, unknown> = {};
 
           for (const [k] of Object.entries(rawFields)) {
             const snakeKey = k.replace(/-/g, "_");
             const camelKey = k.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
 
+            let val: unknown;
             if (k in bind || snakeKey in bind || camelKey in bind) {
               const boundVal = bind[k] ?? bind[snakeKey] ?? bind[camelKey];
-              input[k] = typeof boundVal === "function" ? boundVal(ctx) : boundVal;
+              val = typeof boundVal === "function" ? boundVal(ctx) : boundVal;
             } else {
-              input[k] = rawParams[k] ?? rawParams[snakeKey] ?? rawParams[camelKey];
+              val = rawParams[camelKey] ?? rawParams[snakeKey] ?? rawParams[k];
+            }
+
+            if (val !== undefined) {
+              clientInput[camelKey] = val;
+              clientInput[snakeKey] = val;
+              clientInput[k] = val;
             }
           }
 
           const pipeline = Effect.gen(function* () {
             yield* Effect.logInfo(
-              `${loggerNamespace} Invoking command '${cmdName}' (tool: '${toolName}', callId: ${toolCallId}) for context '${contextId}' with input: ${JSON.stringify(input)}`,
+              `${loggerNamespace} Invoking command '${cmdName}' via tool client (tool: '${toolName}', callId: ${toolCallId}) for context '${contextId}' with input: ${JSON.stringify(clientInput)}`,
             );
 
-            if (!handler) {
-              throw new Error(`No implementation registered for tool command '${cmdName}'`);
+            if (!clientMethod) {
+              throw new Error(
+                `No tool client method found for command '${cmdName}' (expected method '${camelMethodName}')`,
+              );
             }
 
-            const res = yield* handler(input);
+            const res = yield* clientMethod(clientInput);
             const resultString = safeJsonStringify(res);
 
             yield* Effect.logInfo(

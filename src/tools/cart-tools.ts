@@ -13,7 +13,7 @@ export const cartToolHandlers = {
         return yield* client.get({}).pipe(Effect.orDie);
       }),
     ),
-  addToCart: (input: { "user-id": string; "product-id": string; quantity?: number }) =>
+  addToCart: (input: { "user-id": string; "product-id": string; quantity?: number | null }) =>
     Effect.scoped(
       Effect.gen(function* () {
         const client = yield* getCartClient(input["user-id"]);
@@ -57,50 +57,51 @@ export const cartToolHandlers = {
     ),
 };
 
-export const cartTools = Object.assign(
-  Tool.toolDefinition("cart-tools", {
-    doc: "Customer shopping cart management tools for viewing and modifying items",
-  })
-    .command("get-cart", (cmd) =>
-      cmd.body((b) =>
-        b
-          .option("user-id", Schema.String, { doc: "Customer user ID" })
-          .returns(Schema.NullOr(Cart), { doc: "Current shopping cart with items and total" }),
-      ),
-    )
-    .command("add-to-cart", (cmd) =>
-      cmd.body((b) =>
-        b
-          .option("user-id", Schema.String, { doc: "Customer user ID" })
-          .option("product-id", Schema.String, { doc: "Product ID to add" })
-          .option("quantity", Schema.optional(Schema.Number), { doc: "Quantity to add" })
-          .returns(Schema.NullOr(Cart), { doc: "Updated shopping cart" }),
-      ),
-    )
-    .command("update-cart-quantity", (cmd) =>
-      cmd.body((b) =>
-        b
-          .option("user-id", Schema.String, { doc: "Customer user ID" })
-          .option("product-id", Schema.String, { doc: "Product ID to update" })
-          .option("quantity", Schema.Number, { doc: "New absolute quantity" })
-          .returns(Schema.NullOr(Cart), { doc: "Updated shopping cart" }),
-      ),
-    )
-    .command("remove-from-cart", (cmd) =>
-      cmd.body((b) =>
-        b
-          .option("user-id", Schema.String, { doc: "Customer user ID" })
-          .option("product-id", Schema.String, { doc: "Product ID to remove" })
-          .returns(Schema.NullOr(Cart), { doc: "Updated shopping cart" }),
-      ),
-    )
-    .command("clear-cart", (cmd) =>
-      cmd.body((b) =>
-        b
-          .option("user-id", Schema.String, { doc: "Customer user ID" })
-          .returns(Schema.NullOr(Cart), { doc: "Cleared empty shopping cart" }),
-      ),
-    )
-    .implement(cartToolHandlers, Layer.empty),
-  { handlers: cartToolHandlers },
-);
+export const cartToolDefinition = Tool.toolDefinition("cart-tools", {
+  doc: "Customer shopping cart management tools for viewing and modifying items",
+})
+  .command("get-cart", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("user-id", Schema.String, { doc: "Customer user ID", required: true })
+        .returns(Schema.NullOr(Cart), { doc: "Current shopping cart with items and total" }),
+    ),
+  )
+  .command("add-to-cart", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("user-id", Schema.String, { doc: "Customer user ID", required: true })
+        .option("product-id", Schema.String, { doc: "Product ID to add", required: true })
+        .option("quantity", Schema.Number, { doc: "Quantity to add" })
+        .returns(Schema.NullOr(Cart), { doc: "Updated shopping cart" }),
+    ),
+  )
+  .command("update-cart-quantity", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("user-id", Schema.String, { doc: "Customer user ID", required: true })
+        .option("product-id", Schema.String, { doc: "Product ID to update", required: true })
+        .option("quantity", Schema.Number, { doc: "New absolute quantity", required: true })
+        .returns(Schema.NullOr(Cart), { doc: "Updated shopping cart" }),
+    ),
+  )
+  .command("remove-from-cart", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("user-id", Schema.String, { doc: "Customer user ID", required: true })
+        .option("product-id", Schema.String, { doc: "Product ID to remove", required: true })
+        .returns(Schema.NullOr(Cart), { doc: "Updated shopping cart" }),
+    ),
+  )
+  .command("clear-cart", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("user-id", Schema.String, { doc: "Customer user ID", required: true })
+        .returns(Schema.NullOr(Cart), { doc: "Cleared empty shopping cart" }),
+    ),
+  );
+
+// Register provider implementation with Golem runtime
+cartToolDefinition.implement(cartToolHandlers, Layer.empty);
+
+export const cartTools = cartToolDefinition;
