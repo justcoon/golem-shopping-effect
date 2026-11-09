@@ -35,6 +35,4 @@ export const inventoryToolDefinition = Tool.toolDefinition("inventory-tools", {
 // Register provider implementation with Golem runtime
 inventoryToolDefinition.implement(inventoryToolHandlers, Layer.empty);
 
-export const inventoryTools = Object.assign(inventoryToolDefinition, {
-  handlers: inventoryToolHandlers,
-});
+export const inventoryTools = inventoryToolDefinition;

@@ -69,6 +69,4 @@ export const catalogToolDefinition = Tool.toolDefinition("catalog-tools", {
 // Register provider implementation with Golem runtime
 catalogToolDefinition.implement(catalogToolHandlers, Layer.empty);
 
-export const catalogTools = Object.assign(catalogToolDefinition, {
-  handlers: catalogToolHandlers,
-});
+export const catalogTools = catalogToolDefinition;

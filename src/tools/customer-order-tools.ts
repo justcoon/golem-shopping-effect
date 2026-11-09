@@ -61,6 +61,4 @@ export const customerOrderToolDefinition = Tool.toolDefinition("customer-order-t
 // Register provider implementation with Golem runtime
 customerOrderToolDefinition.implement(customerOrderToolHandlers, Layer.empty);
 
-export const customerOrderTools = Object.assign(customerOrderToolDefinition, {
-  handlers: customerOrderToolHandlers,
-});
+export const customerOrderTools = customerOrderToolDefinition;

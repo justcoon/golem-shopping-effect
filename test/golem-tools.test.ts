@@ -5,6 +5,7 @@ import {
   createPiAgentTools,
   createToolFromAgentMethod,
   golemToolToPiAgentTools,
+  registerToolSdk,
 } from "../src/ai/index.js";
 import { Cart } from "../src/agents/cart/cart-schema.js";
 import { Order, OrderStatus } from "../src/agents/order/order-schema.js";
@@ -433,5 +434,55 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
     );
     assert.strictEqual(data.executedLocally, true);
     assert.strictEqual(data.action, "index-sync");
+  });
+
+  it("automatically resolves implementation from Golem registeredTools", async () => {
+    let invokedWith: unknown;
+    const testToolDefinition = {
+      name: "registered-test-tools",
+      model: {
+        name: "registered-test-tools",
+        children: {
+          "test-cmd": {
+            name: "test-cmd",
+            doc: "Test command",
+            body: {
+              fields: { param: Schema.String },
+              args: [{ name: "param", kind: "option", options: { required: true } }],
+            },
+          },
+        },
+      },
+    };
+
+    // Register with ambient tool SDK exactly as done in Golem runtime
+    registerToolSdk({
+      registeredTools: () => [
+        {
+          definition: { name: "registered-test-tools" },
+          implementation: {
+            testCmd: (input: { param: string }) => {
+              invokedWith = input;
+              return Effect.succeed(`result-for-${input.param}`);
+            },
+          },
+        },
+      ],
+    });
+
+    // Pass tool definition directly (no handlers attached, no custom client)
+    const tools = golemToolToPiAgentTools(testToolDefinition, "test-user");
+    assert.strictEqual(tools.length, 1);
+    assert.strictEqual(tools[0]?.name, "test_cmd");
+
+    const res = await tools[0]?.execute("c-reg-1", { param: "val-123" });
+    assert.strictEqual(res?.isError, undefined);
+    assert.strictEqual(
+      JSON.parse(res?.content[0] && "text" in res.content[0] ? res.content[0].text : '""'),
+      "result-for-val-123",
+    );
+    assert.deepStrictEqual(invokedWith, {
+      param: "val-123",
+    });
   });
 });
