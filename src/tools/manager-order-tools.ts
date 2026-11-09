@@ -149,4 +149,6 @@ export const managerOrderToolDefinition = Tool.toolDefinition("manager-order-too
 // Register provider implementation with Golem runtime
 managerOrderToolDefinition.implement(managerOrderToolHandlers, Layer.empty);
 
-export const managerOrderTools = managerOrderToolDefinition;
+export const managerOrderTools = Object.assign(managerOrderToolDefinition, {
+  handlers: managerOrderToolHandlers,
+});

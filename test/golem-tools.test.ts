@@ -397,4 +397,41 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
     assert.strictEqual(overrideData.clientRun, "fromOptions");
     assert.strictEqual(overrideData.task, "cleanup");
   });
+
+  it("falls back to local handlers when tool client runtime is unavailable in guest world", async () => {
+    const guestDefinition = {
+      name: "guest-tools",
+      model: {
+        name: "guest-tools",
+        children: {
+          "run-action": {
+            name: "run-action",
+            doc: "Run guest action",
+            body: {
+              fields: { "action-name": Schema.String },
+              args: [{ name: "action-name", kind: "option", options: { required: true } }],
+            },
+          },
+        },
+      },
+      client: () => {
+        throw new Error("tool client runtime is unavailable in this guest world");
+      },
+      handlers: {
+        runAction: (input: { actionName: string }) =>
+          Effect.succeed({ executedLocally: true, action: input.actionName }),
+      },
+    };
+
+    const tools = golemToolToPiAgentTools(guestDefinition, "guest-user");
+    assert.strictEqual(tools.length, 1);
+
+    const res = await tools[0]?.execute("c3", { action_name: "index-sync" });
+    assert.strictEqual(res?.isError, undefined);
+    const data = JSON.parse(
+      res?.content[0] && "text" in res.content[0] ? res.content[0].text : "{}",
+    );
+    assert.strictEqual(data.executedLocally, true);
+    assert.strictEqual(data.action, "index-sync");
+  });
 });
