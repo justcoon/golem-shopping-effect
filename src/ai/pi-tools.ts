@@ -155,6 +155,22 @@ export interface GolemToolAdapterOptions {
    * rather than dispatching via Golem's host client RPC. Useful for streaming or local execution.
    */
   readonly useImpl?: boolean;
+  /**
+   * Optional custom summary formatters for tools.
+   * Can be keyed by tool_name (snake_case), command-name (kebab-case), or methodName (camelCase).
+   */
+  readonly formatSummary?: Record<
+    string,
+    (result: unknown, args: Record<string, unknown>) => string
+  >;
+  /**
+   * Optional override descriptions for tools.
+   */
+  readonly descriptions?: Record<string, string>;
+  /**
+   * Optional override tool names.
+   */
+  readonly toolNames?: Record<string, string>;
 }
 
 function resolveBoundValue(
@@ -214,9 +230,20 @@ export function golemToolToPiAgentTools(
   return Object.entries(model.children).map(([cmdName, cmdRaw]) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cmd = cmdRaw as any;
-    const toolName = toSnakeCase(cmdName);
+    const camelMethodName = toCamelCase(cmdName);
+    const defaultToolName = toSnakeCase(cmdName);
+    const toolName =
+      options.toolNames?.[camelMethodName] ??
+      options.toolNames?.[cmdName] ??
+      options.toolNames?.[defaultToolName] ??
+      defaultToolName;
     const label = toHumanLabel(toolName);
-    const description = typeof cmd.doc === "string" ? cmd.doc : (cmd.body?.description ?? "");
+    const description =
+      options.descriptions?.[camelMethodName] ??
+      options.descriptions?.[toolName] ??
+      options.descriptions?.[cmdName] ??
+      options.descriptions?.[defaultToolName] ??
+      (typeof cmd.doc === "string" ? cmd.doc : (cmd.body?.description ?? ""));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rawFields: Record<string, Schema.Schema<any>> = cmd.body?.fields ?? {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -232,7 +259,6 @@ export function golemToolToPiAgentTools(
       }
     }
 
-    const camelMethodName = toCamelCase(cmdName);
     const clientMethod =
       typeof client?.[camelMethodName] === "function"
         ? (client[camelMethodName] as (input: unknown) => Effect.Effect<unknown, unknown, unknown>)
@@ -276,9 +302,24 @@ export function golemToolToPiAgentTools(
           const res = yield* clientMethod(clientInput);
           const resultString = safeJsonStringify(res);
 
+          let summary = `${label} completed successfully.`;
+          const customSummary =
+            options.formatSummary?.[camelMethodName] ??
+            options.formatSummary?.[toolName] ??
+            options.formatSummary?.[cmdName] ??
+            options.formatSummary?.[defaultToolName];
+
+          if (customSummary) {
+            try {
+              summary = customSummary(res, clientInput);
+            } catch {
+              // fallback to default summary
+            }
+          }
+
           return {
             resultString,
-            summary: `${label} completed successfully.`,
+            summary,
           };
         });
 

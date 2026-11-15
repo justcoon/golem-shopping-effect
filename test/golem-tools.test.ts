@@ -499,4 +499,147 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
     assert.strictEqual(data2.mode, "client");
     assert.strictEqual(data2.name, "streaming-test");
   });
+
+  it("supports formatSummary, descriptions, and toolNames customization", async () => {
+    const customDefinition = {
+      name: "order-actions",
+      model: {
+        name: "order-actions",
+        children: {
+          "cancel-order": {
+            name: "cancel-order",
+            doc: "Default doc",
+            body: {
+              fields: { "order-id": Schema.String, reason: Schema.optional(Schema.String) },
+              args: [
+                { name: "order-id", kind: "option", options: { required: true } },
+                { name: "reason", kind: "option", options: { required: false } },
+              ],
+            },
+          },
+        },
+      },
+      handlers: {
+        cancelOrder: (input: { "order-id": string; reason?: string }) =>
+          Effect.succeed({ cancelled: true, orderId: input["order-id"] }),
+      },
+    };
+
+    const tools = golemToolToPiAgentTools(
+      customDefinition as unknown as GolemToolDefinition,
+      "user-1",
+      undefined,
+      {
+        useImpl: true,
+        toolNames: { "cancel-order": "abort_order" },
+        descriptions: { abort_order: "Custom description for aborting an order" },
+        formatSummary: {
+          abort_order: (res, args) =>
+            `Successfully cancelled order #${args["order-id"]} (data: ${JSON.stringify(res)})`,
+        },
+      },
+    );
+
+    assert.strictEqual(tools.length, 1);
+    const tool = tools[0]!;
+    assert.strictEqual(tool.name, "abort_order");
+    assert.strictEqual(tool.description, "Custom description for aborting an order");
+
+    const result = await tool.execute("call-abort", { order_id: "ord-999" });
+    const content = result.content[0];
+    assert.ok(content && "text" in content);
+    assert.ok(
+      result.details &&
+        "summary" in result.details &&
+        typeof result.details.summary === "string" &&
+        result.details.summary.includes("Successfully cancelled order #ord-999"),
+    );
+  });
+
+  it("strips bound parameters from schema and executes with bound context value", async () => {
+    const cartToolsMock = {
+      name: "cart-tools",
+      model: {
+        name: "cart-tools",
+        children: {
+          "prepare-checkout": {
+            name: "prepare-checkout",
+            doc: "Prepare checkout",
+            body: {
+              fields: { "user-id": Schema.String },
+              args: [{ name: "user-id", kind: "option", options: { required: true } }],
+            },
+          },
+          "confirm-checkout": {
+            name: "confirm-checkout",
+            doc: "Confirm checkout",
+            body: {
+              fields: { "user-id": Schema.String, "order-id": Schema.String },
+              args: [
+                { name: "user-id", kind: "option", options: { required: true } },
+                { name: "order-id", kind: "option", options: { required: true } },
+              ],
+            },
+          },
+        },
+      },
+      handlers: {
+        prepareCheckout: (input: { "user-id": string }) =>
+          Effect.succeed({ draft: { orderId: "ord-draft-1" }, userId: input["user-id"] }),
+        confirmCheckout: (input: { "user-id": string; "order-id": string }) =>
+          Effect.succeed({ orderId: input["order-id"], userId: input["user-id"] }),
+      },
+    };
+
+    const tools = golemToolToPiAgentTools(
+      cartToolsMock as unknown as GolemToolDefinition,
+      "user-456",
+      undefined,
+      {
+        useImpl: true,
+        bind: { "user-id": "user-456" },
+        formatSummary: {
+          prepareCheckout: (res) => {
+            const draft = (res as any)?.draft;
+            return `Prepared checkout draft for order #${draft.orderId}. Items reserved for 10 minutes.`;
+          },
+          confirmCheckout: (res) =>
+            `Order successfully confirmed! Order ID: ${(res as any).orderId}`,
+        },
+      },
+    );
+
+    assert.strictEqual(tools.length, 2);
+
+    const prepareTool = tools.find((t) => t.name === "prepare_checkout")!;
+    const confirmTool = tools.find((t) => t.name === "confirm_checkout")!;
+
+    // Check that user-id is not in parameters schema
+    const prepProps = (prepareTool.parameters as any)?.properties ?? {};
+    assert.strictEqual(prepProps["user-id"], undefined);
+    assert.strictEqual(prepProps["userId"], undefined);
+
+    const confirmProps = (confirmTool.parameters as any)?.properties ?? {};
+    assert.strictEqual(confirmProps["user-id"], undefined);
+    assert.ok(confirmProps["order_id"] !== undefined || confirmProps["order-id"] !== undefined);
+
+    // Execute prepare_checkout - verify summary and injected user-id
+    const prepRes = await prepareTool.execute("call-p", {});
+    assert.ok(
+      prepRes.details &&
+        "summary" in prepRes.details &&
+        typeof prepRes.details.summary === "string" &&
+        prepRes.details.summary ===
+          "Prepared checkout draft for order #ord-draft-1. Items reserved for 10 minutes.",
+    );
+
+    // Execute confirm_checkout
+    const confRes = await confirmTool.execute("call-c", { order_id: "ord-draft-1" });
+    assert.ok(
+      confRes.details &&
+        "summary" in confRes.details &&
+        typeof confRes.details.summary === "string" &&
+        confRes.details.summary === "Order successfully confirmed! Order ID: ord-draft-1",
+    );
+  });
 });
