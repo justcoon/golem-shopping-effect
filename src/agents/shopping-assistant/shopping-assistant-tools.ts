@@ -1,181 +1,123 @@
-import { Context, Result } from "effect";
+import { Context } from "effect";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { TSchema } from "@sinclair/typebox";
 import { schemaToJsonSchema } from "../../common/index.js";
-import { CartAgentDefinition } from "../cart/index.js";
-import {
-  createPiAgentTools,
-  createToolFromAgentMethod,
-  golemToolToPiAgentTools,
-  ToolContext,
-  type AssistantToolDefinition,
-} from "../../ai/index.js";
+import { golemToolToPiAgentTools } from "../../ai/index.js";
 import { cartTools, catalogTools, customerOrderTools, inventoryTools } from "../../tools/index.js";
 
 export { schemaToJsonSchema };
 
-const userCartId = (ctx: ToolContext) => ({ id: ctx.userId ?? "" });
-
-export const getSavedContactInfoTool = createToolFromAgentMethod(
-  CartAgentDefinition,
-  "getSavedContactInfo",
-  {
-    toolName: "get_saved_contact_info",
-    resolveId: userCartId,
-    formatSummary: (result) => {
-      if (Result.isSuccess(result)) {
-        return result.success ? "Retrieved saved contact info" : "No saved contact info found";
-      }
-      return `Failed to retrieve saved contact info: ${result.failure}`;
-    },
+const cartFormatSummary: Record<
+  string,
+  (result: unknown, args: Record<string, unknown>) => string
+> = {
+  getCart: (res) => {
+    const cart = res as { items?: unknown[]; total?: number } | null;
+    return cart && cart.items && cart.items.length > 0
+      ? `Cart has ${cart.items.length} items (total: $${cart.total})`
+      : "Cart is currently empty.";
   },
-);
-
-export const applySavedContactInfoTool = createToolFromAgentMethod(
-  CartAgentDefinition,
-  "applySavedContactInfo",
-  {
-    toolName: "apply_saved_contact_info",
-    resolveId: userCartId,
-    formatSummary: (result) => {
-      if (Result.isSuccess(result)) {
-        return "Applied saved contact info to cart";
-      }
-      return `Failed to apply saved contact info: ${result.failure.message}`;
-    },
+  addToCart: (_res, args) =>
+    `Added item ${args["product-id"] ?? args.productId} (qty: ${args.quantity ?? 1}) to cart`,
+  updateCartQuantity: (_res, args) =>
+    `Updated quantity of ${args["product-id"] ?? args.productId} to ${args.quantity}`,
+  removeFromCart: (_res, args) => `Removed item ${args["product-id"] ?? args.productId} from cart`,
+  clearCart: () => "Cleared all items from cart",
+  getSavedContactInfo: (res) =>
+    res ? "Retrieved saved contact info" : "No saved contact info found",
+  applySavedContactInfo: () => "Applied saved contact info to cart",
+  setShippingAddress: () => "Updated shipping address",
+  setBillingAddress: () => "Updated billing address",
+  setEmail: (_res, args) => `Updated email to ${args.email}`,
+  prepareCheckout: (res) => {
+    const cart = res as { draft?: { orderId?: string }; total?: number; currency?: string } | null;
+    const draft = cart?.draft;
+    return draft?.orderId
+      ? `Prepared checkout draft for order #${draft.orderId}. Items reserved for 10 minutes.`
+      : "Prepared checkout.";
   },
-);
-
-export const setShippingAddressTool = createToolFromAgentMethod(
-  CartAgentDefinition,
-  "updateShippingAddress",
-  {
-    toolName: "set_shipping_address",
-    resolveId: userCartId,
-    formatSummary: (result) => {
-      if (Result.isSuccess(result)) {
-        return "Updated shipping address";
-      }
-      return `Failed to update shipping address: ${result.failure}`;
-    },
+  confirmCheckout: (res) => {
+    const conf = res as { orderId?: string } | null;
+    return conf?.orderId
+      ? `Order successfully confirmed! Order ID: ${conf.orderId}`
+      : "Order successfully confirmed!";
   },
-);
+  cancelCheckout: (_res, args) =>
+    `Cancelled checkout reservation for order #${args["order-id"] ?? args.orderId ?? ""}`,
+};
 
-export const setBillingAddressTool = createToolFromAgentMethod(
-  CartAgentDefinition,
-  "updateBillingAddress",
-  {
-    toolName: "set_billing_address",
-    resolveId: userCartId,
-    formatSummary: (result) => {
-      if (Result.isSuccess(result)) {
-        return "Updated billing address";
-      }
-      return `Failed to update billing address: ${result.failure}`;
-    },
+const catalogFormatSummary: Record<
+  string,
+  (result: unknown, args: Record<string, unknown>) => string
+> = {
+  searchProducts: (res, args) => {
+    const list = Array.isArray(res) ? res : [];
+    return `Found ${list.length} products for '${args.query}'`;
   },
-);
-
-export const setEmailTool = createToolFromAgentMethod(CartAgentDefinition, "updateEmail", {
-  toolName: "set_email",
-  resolveId: userCartId,
-  formatSummary: (result, args) => {
-    if (Result.isSuccess(result)) {
-      return `Updated email to ${args.email}`;
-    }
-    return `Failed to update email: ${result.failure}`;
+  getProductDetails: (res, args) => {
+    const list = Array.isArray(res) ? res : [];
+    const prod = list[0] as { name?: string; productId?: string } | undefined;
+    return prod
+      ? `Details for ${prod.name} (${prod.productId})`
+      : `Product with ID ${args["product-id"] ?? args.productId} not found.`;
   },
-});
+};
 
-export const prepareCheckoutTool = createToolFromAgentMethod(
-  CartAgentDefinition,
-  "prepareCheckout",
-  {
-    toolName: "prepare_checkout",
-    resolveId: userCartId,
-    formatSummary: (result) => {
-      if (Result.isSuccess(result)) {
-        const draft = result.success.draft;
-        return draft
-          ? `Prepared checkout draft for order #${draft.orderId}. Items reserved for 10 minutes.`
-          : "Prepared checkout.";
-      }
-      return `Failed to prepare checkout: ${result.failure.message}`;
-    },
+const customerOrderFormatSummary: Record<
+  string,
+  (result: unknown, args: Record<string, unknown>) => string
+> = {
+  getOrderHistory: (res) => {
+    const list = Array.isArray(res) ? res : [];
+    return `Retrieved ${list.length} past orders`;
   },
-);
-
-export const confirmCheckoutTool = createToolFromAgentMethod(
-  CartAgentDefinition,
-  "confirmCheckout",
-  {
-    toolName: "confirm_checkout",
-    resolveId: userCartId,
-    formatSummary: (result) => {
-      if (Result.isSuccess(result)) {
-        return `Order successfully confirmed! Order ID: ${result.success.orderId}`;
-      }
-      return `Failed to confirm checkout: ${result.failure.message}`;
-    },
+  getOrderDetails: (res, args) => {
+    const order = res as { orderId?: string; orderStatus?: string; total?: number } | null;
+    return order
+      ? `Order ${order.orderId} status: ${order.orderStatus} (total: $${order.total})`
+      : `Order with ID ${args["order-id"] ?? args.orderId} not found.`;
   },
-);
+};
 
-export const cancelCheckoutTool = createToolFromAgentMethod(CartAgentDefinition, "cancelCheckout", {
-  toolName: "cancel_checkout",
-  resolveId: userCartId,
-  formatSummary: (result, args) => {
-    if (Result.isSuccess(result)) {
-      return `Cancelled checkout reservation for order #${args.orderId}`;
-    }
-    return `Failed to cancel checkout: ${result.failure}`;
+const inventoryFormatSummary: Record<
+  string,
+  (result: unknown, args: Record<string, unknown>) => string
+> = {
+  checkInventory: (res, args) => {
+    const inv = res as { inStock?: boolean; availableQuantity?: number } | null;
+    const id = args["product-id"] ?? args.productId;
+    return inv
+      ? `Product ${id} inventory: ${inv.inStock ? `${inv.availableQuantity} available` : "Out of stock"}`
+      : `Inventory check for ${id} completed.`;
   },
-});
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyAssistantToolDefinition = AssistantToolDefinition<any, any>;
-
-export const checkoutDraftTools: readonly AnyAssistantToolDefinition[] = [
-  getSavedContactInfoTool,
-  applySavedContactInfoTool,
-  setShippingAddressTool,
-  setBillingAddressTool,
-  setEmailTool,
-  prepareCheckoutTool,
-  confirmCheckoutTool,
-  cancelCheckoutTool,
-];
+};
 
 export function getShoppingAssistantPiTools(
   userId: string,
   context?: Context.Context<never>,
 ): AgentTool<TSchema>[] {
-  const golemTools = [
+  return [
     ...golemToolToPiAgentTools(catalogTools, { userId }, context, {
       useImpl: true,
       loggerNamespace: "[ShoppingAssistant]",
+      formatSummary: catalogFormatSummary,
     }),
     ...golemToolToPiAgentTools(inventoryTools, { userId }, context, {
       useImpl: true,
       loggerNamespace: "[ShoppingAssistant]",
+      formatSummary: inventoryFormatSummary,
     }),
     ...golemToolToPiAgentTools(cartTools, { userId }, context, {
       useImpl: true,
       bind: { "user-id": userId },
       loggerNamespace: "[ShoppingAssistant]",
+      formatSummary: cartFormatSummary,
     }),
     ...golemToolToPiAgentTools(customerOrderTools, { userId }, context, {
       useImpl: true,
       bind: { "user-id": userId },
       loggerNamespace: "[ShoppingAssistant]",
+      formatSummary: customerOrderFormatSummary,
     }),
   ];
-
-  const checkoutTools = createPiAgentTools(
-    checkoutDraftTools,
-    { userId },
-    context,
-    "[ShoppingAssistant]",
-  );
-
-  return [...golemTools, ...checkoutTools];
 }
