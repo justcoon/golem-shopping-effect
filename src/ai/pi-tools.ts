@@ -150,6 +150,11 @@ export interface GolemToolAdapterOptions {
   readonly bind?: Record<string, unknown | ((ctx: ToolContext) => unknown)>;
   readonly loggerNamespace?: string;
   readonly client?: ToolClientLike;
+  /**
+   * If true, invokes the tool's direct implementation (handlers) in-process
+   * rather than dispatching via Golem's host client RPC. Useful for streaming or local execution.
+   */
+  readonly useImpl?: boolean;
 }
 
 function resolveBoundValue(
@@ -186,15 +191,20 @@ export function golemToolToPiAgentTools(
   };
 
   let client: ToolClientLike | undefined = options.client;
-  if (!client && typeof toolWithClient.client === "function") {
-    try {
-      client = toolWithClient.client();
-    } catch {
-      // fallback to handlers if client construction fails
+
+  if (options.useImpl) {
+    client = client ?? toolWithClient.handlers;
+  } else {
+    if (!client && typeof toolWithClient.client === "function") {
+      try {
+        client = toolWithClient.client();
+      } catch {
+        // fallback to handlers if client construction fails
+      }
     }
-  }
-  if (!client) {
-    client = toolWithClient.handlers;
+    if (!client) {
+      client = toolWithClient.handlers;
+    }
   }
   const ctx: ToolContext = typeof toolContext === "string" ? { userId: toolContext } : toolContext;
   const contextId = ctx.userId ?? ctx.managerId ?? "system";

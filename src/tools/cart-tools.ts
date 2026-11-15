@@ -104,4 +104,6 @@ export const cartToolDefinition = Tool.toolDefinition("cart-tools", {
 // Register provider implementation with Golem runtime
 cartToolDefinition.implement(cartToolHandlers, Layer.empty);
 
-export const cartTools = cartToolDefinition;
+export const cartTools = Object.assign(cartToolDefinition, {
+  handlers: cartToolHandlers,
+});

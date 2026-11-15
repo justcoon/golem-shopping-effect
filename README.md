@@ -22,16 +22,26 @@ This is an e-commerce application built with an agent-based architecture on [Gol
 - **Shopping Recommendation Agent**: Dedicated per-user recommendation engine that analyzes past purchase history and generates personalized product recommendations using LLM reasoning, updating asynchronously upon checkout without blocking chat execution.
 - **Manager Agent**: Autonomous AI assistant for store managers to search, modify, ship, and cancel orders, and inspect catalog/inventory.
 
+### First-Class Golem Tools (`src/tools/`)
+The application defines strongly typed Golem platform tools (`Tool.toolDefinition`) that serve as the **single source of truth** for both the internal AI assistants and external MCP clients:
+- **`catalog-tools`**: Product catalog keyword/brand search and product detail lookups.
+- **`inventory-tools`**: Regional stock availability and inventory checks.
+- **`cart-tools`**: Cart inspection, item additions, quantity updates, item removals, contact details, and two-phase checkout (`prepare_checkout`, `confirm_checkout`, `cancel_checkout`).
+- **`customer-order-tools`**: Customer-scoped order history and order tracking.
+- **`manager-order-tools`**: Store operations order search, recent order listings, fulfillment shipping, cancellations, item edits, and address updates.
+
 ### AI & Agent Tool Architecture (`src/ai/`)
 - **Shared AI Framework**: General-purpose AI subsystem (`src/ai/`) powering both `ShoppingAssistantAgent` and `ManagerAgent`.
 - **Autonomous Agent Loop**: Powered by `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai`, managing multi-turn conversational state, message history, and autonomous tool calling.
 - **Multi-Provider LLM Support**: Native support for Google Gemini (with cryptographic thought signatures for function calling), OpenRouter, and any OpenAI-compatible provider.
-- **Dynamic Tool Generation**: Declaratively converts agent methods into type-safe LLM tools with schema validation, custom input mapping, and automatic agent ID resolution.
+- **Dynamic Tool Generation**: Declaratively converts agent methods and Golem platform tools into type-safe LLM tools with schema validation, custom input mapping, and automatic agent ID resolution.
 - **Durable Streaming & Multi-Turn**: Exposes synchronous `chat` and Durable Streams `chatStream` methods with real-time token and tool event streaming.
 - **Structured WASI Logging**: Logs tool invocation lifecycle events (`[ShoppingAssistant]` and `[ManagerAgent]`) through Effect WASI logging.
 
 ### Key Features
 - **Two-Phase Checkout & Reservation**: Time-bounded inventory reservations (10-minute hold window) during checkout preparation, preventing race conditions and cart modifications until confirmation or cancellation.
+- **Model Context Protocol (MCP) Integration**: Built-in Streamable HTTP MCP server on port `9007` exposing isolated, role-segregated endpoints for customer shopping (`shop-mcp`) and operations management (`manager-mcp`).
+- **First-Class Tools & Direct In-Process Execution**: Assistants mount tools declaratively using `golemToolToPiAgentTools`, with seamless support for both ambient client RPC and direct in-process execution.
 - **RESTful HTTP API**: All agents expose HTTP endpoints declared in `golem.yaml` and mapped directly to agent methods.
 - **Built-in Web Interfaces**: Zero-setup web clients served directly by Golem:
   - `/assistant`: Customer shopping assistant with real-time SSE streaming, collapsible tool inspection, and dynamic recommendations.
@@ -124,6 +134,14 @@ npm install
 npm run dev
 ```
 The application will be available at `http://localhost:3000`. See the [Frontend README](./frontend/README.md) for more details.
+
+### 8. Model Context Protocol (MCP) Server Access
+Golem provides two role-isolated MCP endpoints using the **Streamable HTTP** transport on port **9007**:
+
+| Endpoint | Subdomain URL | Included Tools |
+|---|---|---|
+| **Customer Shopping** | `http://shop-mcp.localhost:9007/mcp` | `cart_tools_*`, `catalog_tools_*`, `customer_order_tools_*`, `inventory_tools_*` |
+| **Store Manager** | `http://manager-mcp.localhost:9007/mcp` | `catalog_tools_*`, `inventory_tools_*`, `manager_order_tools_*` |
 
 ---
 

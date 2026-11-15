@@ -56,11 +56,13 @@ mcp:
         tools:
           catalog-tools:
             ownerComponent: golem-shopping-effect:effect-main
+          inventory-tools:
+            ownerComponent: golem-shopping-effect:effect-main
           cart-tools:
             ownerComponent: golem-shopping-effect:effect-main
           customer-order-tools:
             ownerComponent: golem-shopping-effect:effect-main
-      - subdomain: admin-mcp
+      - subdomain: manager-mcp
         tools:
           catalog-tools:
             ownerComponent: golem-shopping-effect:effect-main
@@ -112,7 +114,7 @@ httpApi:
 #        ProductSearchAgent: {}
 #        InventoryAgent: {}
 #        ShoppingAssistantAgent: {}
-        ShoppingRecommendationAgent: {}
+#        ShoppingRecommendationAgent: {}
 #        CartAgent: {}
 #        OrderAgent: {}
 #        OrderSearchAgent: {}

@@ -446,4 +446,57 @@ describe("Categorized Store Tools & Multi-Agent Reuse", () => {
     assert.strictEqual(data.executedLocally, true);
     assert.strictEqual(data.action, "index-sync");
   });
+
+  it("uses direct handlers when useImpl is true even if client is configured", async () => {
+    const dualDefinition = {
+      name: "dual-tools",
+      model: {
+        name: "dual-tools",
+        children: {
+          "run-test": {
+            name: "run-test",
+            doc: "Run test action",
+            body: {
+              fields: { "test-name": Schema.String },
+              args: [{ name: "test-name", kind: "option", options: { required: true } }],
+            },
+          },
+        },
+      },
+      client: () => ({
+        runTest: (input: { testName: string }) =>
+          Effect.succeed({ mode: "client", name: input.testName }),
+      }),
+      handlers: {
+        runTest: (input: { testName: string }) =>
+          Effect.succeed({ mode: "impl", name: input.testName }),
+      },
+    };
+
+    // With useImpl: true, handlers are used instead of client
+    const implTools = golemToolToPiAgentTools(
+      dualDefinition as unknown as GolemToolDefinition,
+      "user-impl",
+      undefined,
+      { useImpl: true },
+    );
+    const res = await implTools[0]?.execute("c4", { test_name: "streaming-test" });
+    const data = JSON.parse(
+      res?.content[0] && "text" in res.content[0] ? res.content[0].text : "{}",
+    );
+    assert.strictEqual(data.mode, "impl");
+    assert.strictEqual(data.name, "streaming-test");
+
+    // Without useImpl (default), client is used
+    const clientTools = golemToolToPiAgentTools(
+      dualDefinition as unknown as GolemToolDefinition,
+      "user-client",
+    );
+    const res2 = await clientTools[0]?.execute("c5", { test_name: "streaming-test" });
+    const data2 = JSON.parse(
+      res2?.content[0] && "text" in res2.content[0] ? res2.content[0].text : "{}",
+    );
+    assert.strictEqual(data2.mode, "client");
+    assert.strictEqual(data2.name, "streaming-test");
+  });
 });
