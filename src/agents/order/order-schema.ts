@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { Address } from "../../common/index.js";
-import { InsufficientInventoryError } from "../inventory/index.js";
+import { InsufficientInventoryError } from "../inventory/inventory-schema.js";
 
 export const OrderStatus = Schema.Union([
   Schema.Literal("new"),
@@ -109,9 +109,9 @@ export const Order = Schema.Struct({
   userId: Schema.String,
   orderStatus: OrderStatus,
   items: Schema.Array(OrderItem),
-  email: Schema.optional(Schema.String),
-  billingAddress: Schema.optional(Address),
-  shippingAddress: Schema.optional(Address),
+  email: Schema.NullOr(Schema.String),
+  billingAddress: Schema.NullOr(Address),
+  shippingAddress: Schema.NullOr(Address),
   total: Schema.Number,
   currency: Schema.String,
   createdAt: Schema.DateTimeUtcFromString,

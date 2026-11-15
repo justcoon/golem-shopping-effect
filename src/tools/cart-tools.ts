@@ -1,0 +1,109 @@
+import { Effect, Layer, Schema } from "effect";
+import { Tool } from "@golemcloud/effect-golem";
+import { Cart, CartAgentDefinition } from "../agents/cart/index.js";
+
+const getCartClient = (userId: string) =>
+  CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);
+
+export const cartToolHandlers = {
+  getCart: (input: { "user-id": string }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const client = yield* getCartClient(input["user-id"]);
+        return yield* client.get({}).pipe(Effect.orDie);
+      }),
+    ),
+  addToCart: (input: { "user-id": string; "product-id": string; quantity?: number | null }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const client = yield* getCartClient(input["user-id"]);
+        yield* client
+          .addItem({
+            productId: input["product-id"],
+            quantity: input.quantity ?? 1,
+          })
+          .pipe(Effect.orDie);
+        return yield* client.get({}).pipe(Effect.orDie);
+      }),
+    ),
+  updateCartQuantity: (input: { "user-id": string; "product-id": string; quantity: number }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const client = yield* getCartClient(input["user-id"]);
+        yield* client
+          .updateItemQuantity({
+            productId: input["product-id"],
+            quantity: input.quantity,
+          })
+          .pipe(Effect.orDie);
+        return yield* client.get({}).pipe(Effect.orDie);
+      }),
+    ),
+  removeFromCart: (input: { "user-id": string; "product-id": string }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const client = yield* getCartClient(input["user-id"]);
+        yield* client.removeItem({ productId: input["product-id"] }).pipe(Effect.orDie);
+        return yield* client.get({}).pipe(Effect.orDie);
+      }),
+    ),
+  clearCart: (input: { "user-id": string }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const client = yield* getCartClient(input["user-id"]);
+        yield* client.clear({}).pipe(Effect.orDie);
+        return yield* client.get({}).pipe(Effect.orDie);
+      }),
+    ),
+};
+
+export const cartToolDefinition = Tool.toolDefinition("cart-tools", {
+  doc: "Customer shopping cart management tools for viewing and modifying items",
+})
+  .command("get-cart", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("user-id", Schema.String, { doc: "Customer user ID", required: true })
+        .returns(Schema.NullOr(Cart), { doc: "Current shopping cart with items and total" }),
+    ),
+  )
+  .command("add-to-cart", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("user-id", Schema.String, { doc: "Customer user ID", required: true })
+        .option("product-id", Schema.String, { doc: "Product ID to add", required: true })
+        .option("quantity", Schema.Number, { doc: "Quantity to add" })
+        .returns(Schema.NullOr(Cart), { doc: "Updated shopping cart" }),
+    ),
+  )
+  .command("update-cart-quantity", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("user-id", Schema.String, { doc: "Customer user ID", required: true })
+        .option("product-id", Schema.String, { doc: "Product ID to update", required: true })
+        .option("quantity", Schema.Number, { doc: "New absolute quantity", required: true })
+        .returns(Schema.NullOr(Cart), { doc: "Updated shopping cart" }),
+    ),
+  )
+  .command("remove-from-cart", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("user-id", Schema.String, { doc: "Customer user ID", required: true })
+        .option("product-id", Schema.String, { doc: "Product ID to remove", required: true })
+        .returns(Schema.NullOr(Cart), { doc: "Updated shopping cart" }),
+    ),
+  )
+  .command("clear-cart", (cmd) =>
+    cmd.body((b) =>
+      b
+        .option("user-id", Schema.String, { doc: "Customer user ID", required: true })
+        .returns(Schema.NullOr(Cart), { doc: "Cleared empty shopping cart" }),
+    ),
+  );
+
+// Register provider implementation with Golem runtime
+cartToolDefinition.implement(cartToolHandlers, Layer.empty);
+
+export const cartTools = Object.assign(cartToolDefinition, {
+  handlers: cartToolHandlers,
+});

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { defineAgent, defineConfig, Http, method, WitTypes } from "@golemcloud/effect-golem";
-import { ChatChunk, ChatMessage, ChatResponse } from "./shopping-assistant-schema.js";
+import { ChatChunk, ChatMessage, ChatResponse } from "../../ai/index.js";
 
 export class ShoppingAssistantConfig extends defineConfig("ShoppingAssistantAgent.Config", {
   llm: Schema.Struct({

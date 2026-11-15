@@ -13,7 +13,7 @@ import {
   ConfirmCheckoutError,
   PrepareCheckoutError,
 } from "../src/agents/cart/cart-schema.js";
-import { createToolFromAgentMethod } from "../src/agents/shopping-assistant/shopping-assistant-tool-generator.js";
+import { createToolFromAgentMethod } from "../src/ai/index.js";
 
 describe("Two-Phase Checkout: Inventory Reservation & Expiration", () => {
   it("determines allocation expiration correctly", () => {
@@ -102,6 +102,9 @@ describe("Two-Phase Checkout: Inventory Reservation & Expiration", () => {
       ],
       total: 99.98,
       currency: "USD",
+      email: null,
+      billingAddress: null,
+      shippingAddress: null,
       previousOrderIds: [],
       updatedAt: DateTime.formatIso(now),
       draft: {
@@ -144,6 +147,9 @@ describe("Two-Phase Checkout: Inventory Reservation & Expiration", () => {
     const activeCart: Cart = {
       userId: "user-1",
       items: [],
+      email: null,
+      billingAddress: null,
+      shippingAddress: null,
       total: 0,
       currency: "USD",
       previousOrderIds: [],
@@ -158,6 +164,9 @@ describe("Two-Phase Checkout: Inventory Reservation & Expiration", () => {
     const expiredCart: Cart = {
       userId: "user-2",
       items: [],
+      email: null,
+      billingAddress: null,
+      shippingAddress: null,
       total: 0,
       currency: "USD",
       previousOrderIds: [],
@@ -174,7 +183,7 @@ describe("Two-Phase Checkout: Inventory Reservation & Expiration", () => {
         cart.draft &&
         DateTime.toEpochMillis(cart.draft.expiresAt) <= DateTime.toEpochMillis(at)
       ) {
-        return { ...cart, draft: undefined, updatedAt: at };
+        return { ...cart, draft: null, updatedAt: at };
       }
       return cart;
     };
@@ -188,10 +197,10 @@ describe("Two-Phase Checkout: Inventory Reservation & Expiration", () => {
     assert.strictEqual(isDraftActive(expiredCart, now), false);
 
     const purgedActive = purgeExpiredDraft(activeCart, now);
-    assert.strictEqual(purgedActive.draft !== undefined, true);
+    assert.strictEqual(purgedActive.draft !== null, true);
 
     const purgedExpired = purgeExpiredDraft(expiredCart, now);
-    assert.strictEqual(purgedExpired.draft, undefined);
+    assert.strictEqual(purgedExpired.draft, null);
   });
 
   it("derives prepare_checkout, confirm_checkout, and cancel_checkout assistant tools", () => {

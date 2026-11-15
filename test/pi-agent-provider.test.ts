@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createModels, createProvider, type Model } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import { setupModelsAndProvider } from "../src/agents/shopping-assistant/shopping-assistant-pi-provider.js";
+import { setupModelsAndProvider } from "../src/ai/index.js";
 
 test("custom OpenAI provider can be registered in createModels", () => {
   const models = createModels();

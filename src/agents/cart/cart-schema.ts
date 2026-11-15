@@ -153,14 +153,14 @@ export type CartItem = typeof CartItem.Type;
 export const Cart = Schema.Struct({
   userId: Schema.String,
   items: Schema.Array(CartItem),
-  email: Schema.optional(Schema.String),
-  billingAddress: Schema.optional(Address),
-  shippingAddress: Schema.optional(Address),
+  email: Schema.NullOr(Schema.String),
+  billingAddress: Schema.NullOr(Address),
+  shippingAddress: Schema.NullOr(Address),
   total: Schema.Number,
   currency: Schema.String,
   previousOrderIds: Schema.Array(Schema.String),
   updatedAt: Schema.DateTimeUtcFromString,
-  draft: Schema.optional(CheckoutDraft),
+  draft: Schema.NullOr(CheckoutDraft),
 });
 export type Cart = typeof Cart.Type;
 
