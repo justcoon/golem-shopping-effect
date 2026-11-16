@@ -194,7 +194,7 @@ export const ProductSearchAgent = defineAgent({
     getByIdsWithPrices: method({
       input: {
         ids: Schema.String.annotate({
-          description: "Comma-separated list of product IDs, e.g. 'ap001,sm002'",
+          description: "Comma-separated list of product IDs from catalog search",
         }),
         currency: Schema.optional(Schema.String).annotate({
           description: "Optional currency code for converted prices, e.g. 'USD' or 'EUR'",

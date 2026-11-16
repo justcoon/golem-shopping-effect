@@ -8,6 +8,8 @@ import {
   createPiAgentTools,
   type AssistantToolLike,
 } from "../src/agents/shopping-assistant/shopping-assistant-pi-tools.js";
+import { buildInitialAgentMessages } from "../src/ai/agent-loop.js";
+import type { ChatMessage } from "../src/ai/ai-schema.js";
 
 const MockSearchArgs = Schema.Struct({
   query: Schema.String.annotate({ description: "Search query" }),
@@ -220,4 +222,93 @@ test("createPiAgentTools propagates ambient Context to tool execution", async ()
     item: "cart-data",
     serviceValue: "active-service",
   });
+});
+
+test("buildInitialAgentMessages reconstructs plain user and assistant messages", () => {
+  const dummyModel = { api: "google-generative-ai", provider: "google", id: "gemini-2.0-flash" };
+  const history: ChatMessage[] = [
+    { role: "user", content: "hello", timestamp: "2026-11-16T12:00:00Z", type: "ok" },
+    {
+      role: "assistant",
+      content: "Hi! How can I help you?",
+      timestamp: "2026-11-16T12:00:01Z",
+      type: "ok",
+    },
+  ];
+
+  const messages = buildInitialAgentMessages(history, dummyModel);
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0]!.role, "user");
+  assert.deepEqual(messages[0]!.content, [{ type: "text", text: "hello" }]);
+  assert.equal(messages[1]!.role, "assistant");
+  assert.deepEqual(messages[1]!.content, [{ type: "text", text: "Hi! How can I help you?" }]);
+});
+
+test("buildInitialAgentMessages reconstructs tool calls and tool results across turns", () => {
+  const dummyModel = { api: "google-generative-ai", provider: "google", id: "gemini-2.0-flash" };
+  const history: ChatMessage[] = [
+    {
+      role: "user",
+      content: "i want to buy airpods",
+      timestamp: "2026-11-16T12:00:00Z",
+      type: "ok",
+    },
+    {
+      role: "assistant",
+      content: "I found Apple AirPods Pro (2nd Gen) for $249.99.",
+      timestamp: "2026-11-16T12:00:02Z",
+      type: "ok",
+      toolCalls: [
+        {
+          id: "call-search-123",
+          toolName: "search_products",
+          arguments: JSON.stringify({ query: "airpods" }),
+          result: JSON.stringify([
+            { productId: "ap003", name: "Apple AirPods Pro", price: 249.99 },
+          ]),
+        },
+      ],
+    },
+  ];
+
+  const messages = buildInitialAgentMessages(history, dummyModel);
+  // Expect: 1 (user) + 1 (assistant toolCall) + 1 (toolResult) + 1 (assistant final text) = 4 messages
+  assert.equal(messages.length, 4);
+
+  // Message 0: User request
+  assert.equal(messages[0]!.role, "user");
+  assert.deepEqual(messages[0]!.content, [{ type: "text", text: "i want to buy airpods" }]);
+
+  // Message 1: Assistant tool call
+  const toolCallMsg = messages[1]!;
+  assert.equal(toolCallMsg.role, "assistant");
+  assert.equal(toolCallMsg.stopReason, "toolUse");
+  assert.deepEqual(toolCallMsg.content, [
+    {
+      type: "toolCall",
+      id: "call-search-123",
+      name: "search_products",
+      arguments: { query: "airpods" },
+    },
+  ]);
+
+  // Message 2: Tool result with search output containing ap003
+  const toolResultMsg = messages[2]!;
+  assert.equal(toolResultMsg.role, "toolResult");
+  assert.equal(toolResultMsg.toolCallId, "call-search-123");
+  assert.equal(toolResultMsg.toolName, "search_products");
+  assert.deepEqual(toolResultMsg.content, [
+    {
+      type: "text",
+      text: JSON.stringify([{ productId: "ap003", name: "Apple AirPods Pro", price: 249.99 }]),
+    },
+  ]);
+
+  // Message 3: Final Assistant reply text
+  const replyMsg = messages[3]!;
+  assert.equal(replyMsg.role, "assistant");
+  assert.equal(replyMsg.stopReason, "stop");
+  assert.deepEqual(replyMsg.content, [
+    { type: "text", text: "I found Apple AirPods Pro (2nd Gen) for $249.99." },
+  ]);
 });

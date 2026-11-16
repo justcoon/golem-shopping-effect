@@ -23,7 +23,7 @@ export const CartAgentDefinition = defineAgent({
   methods: {
     addItem: method({
       input: {
-        productId: Schema.String.annotate({ description: "Product ID to add, e.g. 'ap001'" }),
+        productId: Schema.String.annotate({ description: "Product ID from catalog search" }),
         quantity: Schema.Number.annotate({
           description: "Quantity to add (positive integer, defaults to 1)",
         }),
