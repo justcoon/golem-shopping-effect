@@ -1,4 +1,4 @@
-import { Effect, Redacted, Ref } from "effect";
+import { Effect, Ref } from "effect";
 import { Snapshot } from "@golemcloud/effect-golem";
 import { getCurrentDatetime } from "../../common/index.js";
 import {
@@ -7,15 +7,6 @@ import {
 } from "./shopping-recommendation-definition.js";
 import { executeRecommendItems } from "./shopping-recommendation-logic.js";
 import { ShoppingRecommendationAgentState } from "./shopping-recommendation-schema.js";
-
-const resolveLlmConfig = Effect.gen(function* () {
-  const config = yield* ShoppingRecommendationConfig;
-  const apiKey = Redacted.value(yield* config.llm.apiKey.get);
-  const model = Redacted.value(yield* config.llm.model.get);
-  const apiUrl = Redacted.value(yield* config.llm.apiUrl.get);
-
-  return { apiKey, model, apiUrl };
-});
 
 export const ShoppingRecommendationAgent = ShoppingRecommendationDefinition.implement<
   Ref.Ref<ShoppingRecommendationAgentState>
@@ -42,13 +33,11 @@ export const ShoppingRecommendationAgent = ShoppingRecommendationDefinition.impl
       Effect.scoped(
         Effect.gen(function* () {
           const { userId, recommendedItems: prevItems } = yield* Ref.get(state);
-          const { apiKey, model, apiUrl } = yield* resolveLlmConfig;
+          const { llm } = yield* ShoppingRecommendationConfig;
 
           const updated = yield* executeRecommendItems({
             userId,
-            apiKey,
-            model,
-            apiUrl,
+            llm,
             previousRecommendedItems: prevItems,
           });
 

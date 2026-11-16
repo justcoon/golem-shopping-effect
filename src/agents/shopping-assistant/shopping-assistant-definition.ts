@@ -7,14 +7,10 @@ import {
   Snapshot,
   WitTypes,
 } from "@golemcloud/effect-golem";
-import { ChatChunk, ChatMessage, ChatResponse } from "../../ai/index.js";
+import { ChatChunk, ChatMessage, ChatResponse, LlmConfigSchema } from "../../ai/index.js";
 
 export class ShoppingAssistantConfig extends defineConfig("ShoppingAssistantAgent.Config", {
-  llm: Schema.Struct({
-    apiKey: Schema.Redacted(Schema.String),
-    model: Schema.Redacted(Schema.String),
-    apiUrl: Schema.Redacted(Schema.String),
-  }),
+  llm: LlmConfigSchema,
 }) {}
 
 export const ShoppingAssistantAgentState = Schema.Struct({

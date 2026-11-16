@@ -22,11 +22,11 @@ All quality gates, formatting, linter, unit test suite (52 tests), and WASM comp
 
 | Action     | File Path                                                                                                   | Summary of Changes                                                                                     |
 | :--------- | :---------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------- |
-| `[MODIFY]` | [`src/ai/agent-loop.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/ai/agent-loop.ts)                                           | Unified core engine: `executeAgentChatTurnStream` manages live queue streaming, and `executeAgentChatTurn` delegates to it via `Stream.runDrain`. Removed ~150 lines of duplicate code. |
-| `[MODIFY]` | [`src/agents/shopping-assistant/shopping-assistant-loop.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-loop.ts) | Updated `executeChatTurnStream` to pass `onTurnComplete` and options to `executeAgentChatTurnStream`.   |
-| `[MODIFY]` | [`src/agents/shopping-assistant/shopping-assistant-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-agent.ts) | Updated `chatStream` method to stream in real-time and persist conversation history on turn completion.|
-| `[MODIFY]` | [`src/agents/manager/manager-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/manager/manager-agent.ts)                       | Updated `chatStream` method for the manager agent to stream in real-time and persist conversation history. |
-| `[NEW]`    | [`test/real-time-chat-stream.test.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/test/real-time-chat-stream.test.ts)                 | Unit tests asserting progressive event streaming, token delivery, and completion callbacks.            |
+| `[MODIFY]` | [`src/ai/agent-loop.ts`](../../src/ai/agent-loop.ts)                                           | Unified core engine: `executeAgentChatTurnStream` manages live queue streaming, and `executeAgentChatTurn` delegates to it via `Stream.runDrain`. Removed ~150 lines of duplicate code. |
+| `[MODIFY]` | [`src/agents/shopping-assistant/shopping-assistant-loop.ts`](../../src/agents/shopping-assistant/shopping-assistant-loop.ts) | Updated `executeChatTurnStream` to pass `onTurnComplete` and options to `executeAgentChatTurnStream`.   |
+| `[MODIFY]` | [`src/agents/shopping-assistant/shopping-assistant-agent.ts`](../../src/agents/shopping-assistant/shopping-assistant-agent.ts) | Updated `chatStream` method to stream in real-time and persist conversation history on turn completion.|
+| `[MODIFY]` | [`src/agents/manager/manager-agent.ts`](../../src/agents/manager/manager-agent.ts)                       | Updated `chatStream` method for the manager agent to stream in real-time and persist conversation history. |
+| `[NEW]`    | [`test/real-time-chat-stream.test.ts`](../../test/real-time-chat-stream.test.ts)                 | Unit tests asserting progressive event streaming, token delivery, and completion callbacks.            |
 
 ### Key Logic & API Changes
 

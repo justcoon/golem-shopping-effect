@@ -17,7 +17,7 @@ Following a domain-driven approach, all new business operations were implemented
 ### Component-by-Component Changes
 
 #### 1. `CartAgent` (`src/agents/cart/`)
-- **New Schema `SavedContactInfo`** ([cart-schema.ts](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/cart/cart-schema.ts)):
+- **New Schema `SavedContactInfo`** ([cart-schema.ts](../../src/agents/cart/cart-schema.ts)):
   ```typescript
   export const SavedContactInfo = Schema.Struct({
     shippingAddress: Schema.NullOr(Address),
@@ -32,7 +32,7 @@ Following a domain-driven approach, all new business operations were implemented
   - `getOrderHistory` (`GET /v1/cart/{id}/orders?limit={limit}`): Retrieves user past orders in concurrent chunks (most recent first, with optional `limit` parameter).
 
 #### 2. `ProductSearchAgent` (`src/agents/product-search/`)
-- **New Schema `ProductWithPrice`** ([product-search-agent.ts](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/product-search/product-search-agent.ts)):
+- **New Schema `ProductWithPrice`** ([product-search-agent.ts](../../src/agents/product-search/product-search-agent.ts)):
   ```typescript
   export const ProductWithPrice = Schema.Struct({
     productId: Schema.String,
@@ -50,11 +50,11 @@ Following a domain-driven approach, all new business operations were implemented
   - `getByIdsWithPrices` (`GET /v1/product/with-prices?ids={ids}&currency={currency}`): Resolves specific product IDs with active item pricing attached via `pricingClient.getPrice` (powers both multi-item and single-item `get_product_details`).
 
 #### 3. Shopping Assistant Suite (`src/agents/shopping-assistant/`)
-- **Schemas** ([shopping-assistant-schema.ts](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-schema.ts)):
+- **Schemas** ([shopping-assistant-schema.ts](../../src/agents/shopping-assistant/shopping-assistant-schema.ts)):
   - `ChatRole`, `ToolCallRecord`, `ChatMessage` (with durable message history).
   - `ChatChunkType` (`tool_start`, `tool_result`, `text_delta`, `done`, `error`), `ChatChunk`.
   - `ChatRequest`, `ChatResponse`.
-- **Tools Suite** ([shopping-assistant-tools.ts](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-tools.ts)):
+- **Tools Suite** ([shopping-assistant-tools.ts](../../src/agents/shopping-assistant/shopping-assistant-tools.ts)):
   - `search_products`: Calls `ProductSearchAgent.client.newPhantom({}).searchWithPrices`.
   - `get_product_details`: Calls `ProductSearchAgent.client.newPhantom({}).getByIdsWithPrices`.
   - `get_cart`: Calls `CartAgent.get`.
@@ -70,32 +70,32 @@ Following a domain-driven approach, all new business operations were implemented
   - `checkout_cart`: Calls `CartAgent.checkout`.
   - `get_order_history`: Calls `CartAgent.getOrderHistory`.
   - `get_order_details`: Calls `OrderAgent.get`.
-- **Streaming Tool Loop** ([shopping-assistant-loop.ts](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-loop.ts)):
+- **Streaming Tool Loop** ([shopping-assistant-loop.ts](../../src/agents/shopping-assistant/shopping-assistant-loop.ts)):
   - Communicates with OpenRouter / OpenAI compatible chat completion endpoints over `FetchHttpClient`.
   - Multi-step tool loop capped at 5 turns per user prompt.
   - Emits real-time event chunks (`tool_start`, `tool_result`, `text_delta`, `done`).
-- **Endpoints in `ShoppingAssistantDefinition` & Agent** ([shopping-assistant-definition.ts](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-definition.ts), [shopping-assistant-agent.ts](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-agent.ts)):
+- **Endpoints in `ShoppingAssistantDefinition` & Agent** ([shopping-assistant-definition.ts](../../src/agents/shopping-assistant/shopping-assistant-definition.ts), [shopping-assistant-agent.ts](../../src/agents/shopping-assistant/shopping-assistant-agent.ts)):
   - `POST /v1/assistant/{id}/chat`: Synchronous request/response.
   - `POST /v1/assistant/{id}/chat-stream`: Real-time streaming using `WitTypes.AgentStream(ChatChunk)`.
   - `GET /v1/assistant/{id}/history`: Returns complete multi-turn session history.
   - `POST /v1/assistant/{id}/clear-history`: Resets session messages.
   - `GET /v1/assistant/{id}/recommended-items`: Preserved read-only recommendations.
-  - `POST /v1/assistant/{id}/recommend-items`: Preserved recommendation generation, delegating execution to [shopping-assistant-recommendations.ts](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-recommendations.ts).
+  - `POST /v1/assistant/{id}/recommend-items`: Preserved recommendation generation, delegating execution to [shopping-assistant-recommendations.ts](../../src/agents/shopping-assistant/shopping-assistant-recommendations.ts).
 
 #### 4. Frontend Integration (`frontend/src/`)
-- **Assistant API Client** ([assistantService.ts](file:///Users/coon/workspace-zv/git/golem-shopping-effect/frontend/src/api/services/assistantService.ts)):
+- **Assistant API Client** ([assistantService.ts](../../frontend/src/api/services/assistantService.ts)):
   - `chatWithAssistant`: Sends synchronous user prompt and returns assistant reply and tools used.
   - `streamChatWithAssistant`: Connects to `POST /api/v1/assistant/{id}/chat-stream` using the Fetch Streams API, emitting chunks (`tool_start`, `tool_result`, `text_delta`, `done`, `error`) in real time.
   - `getAssistantHistory` & `clearAssistantHistory`: Manages multi-turn conversation persistence.
-- **Assistant Pinia Store** ([assistantStore.ts](file:///Users/coon/workspace-zv/git/golem-shopping-effect/frontend/src/stores/assistantStore.ts)):
+- **Assistant Pinia Store** ([assistantStore.ts](../../frontend/src/stores/assistantStore.ts)):
   - Manages messages, active executing tools, streaming text deltas, and loading state.
   - Automatically refreshes the shopping cart via `cartStore.fetchCart` whenever a cart-mutating tool (`add_to_cart`, `remove_from_cart`, `clear_cart`, `checkout_cart`, etc.) is executed by the assistant.
-- **Shopping Assistant View** ([ShoppingAssistantView.vue](file:///Users/coon/workspace-zv/git/golem-shopping-effect/frontend/src/views/ShoppingAssistantView.vue)):
+- **Shopping Assistant View** ([ShoppingAssistantView.vue](../../frontend/src/views/ShoppingAssistantView.vue)):
   - Accessible at `/assistant`.
   - Interactive chat window with real-time text streaming and typing cursor.
   - Tool execution pills showing which tools were invoked, along with collapsible inspectors for tool arguments and results.
   - One-click starter suggestions (e.g. search with prices, check cart, 1-click checkout, recent orders).
-- **Global Navigation & Floating Launcher** ([App.vue](file:///Users/coon/workspace-zv/git/golem-shopping-effect/frontend/src/App.vue), [HomeView.vue](file:///Users/coon/workspace-zv/git/golem-shopping-effect/frontend/src/views/HomeView.vue)):
+- **Global Navigation & Floating Launcher** ([App.vue](../../frontend/src/App.vue), [HomeView.vue](../../frontend/src/views/HomeView.vue)):
   - Navigation bar link to `🤖 AI Assistant`.
   - Floating action button (FAB) in the bottom-right corner for 1-click access across all views.
   - Hero action button on the home page.

@@ -11,20 +11,20 @@ This implementation applies idiomatic Effect TS best practices and concurrency e
 ## Detailed Changes
 
 ### 1. Common Utility Enhancements
-- **[`src/common/models.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/common/models.ts)**:
+- **[`src/common/models.ts`](../../src/common/models.ts)**:
   - Replaced manual `arrayChunks` implementation with `Array.chunksOf(array, chunkSize)` from `effect`.
   - Added and exported `getCurrentDatetimeIso: Effect.Effect<string> = DateTime.now.pipe(Effect.map(DateTime.formatIso))`.
 
 ### 2. Pure DateTime in Conversational Turn Persistence
-- **[`src/agents/shopping-assistant/shopping-assistant-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-agent.ts)**:
+- **[`src/agents/shopping-assistant/shopping-assistant-agent.ts`](../../src/agents/shopping-assistant/shopping-assistant-agent.ts)**:
   - In `chat`: replaced `const now = new Date().toISOString();` with `const now = yield* getCurrentDatetimeIso;`.
   - In `chatStream`: wrapped `onTurnComplete` in `Effect.gen` and retrieved `const now = yield* getCurrentDatetimeIso;`.
-- **[`src/agents/manager/manager-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/manager/manager-agent.ts)**:
+- **[`src/agents/manager/manager-agent.ts`](../../src/agents/manager/manager-agent.ts)**:
   - In `chat`: replaced `const now = new Date().toISOString();` with `const now = yield* getCurrentDatetimeIso;`.
   - In `chatStream`: wrapped `onTurnComplete` in `Effect.gen` and retrieved `const now = yield* getCurrentDatetimeIso;`.
 
 ### 3. Concurrent Fan-Out over Item Operations
-- **[`src/agents/order/order-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/order/order-agent.ts)**:
+- **[`src/agents/order/order-agent.ts`](../../src/agents/order/order-agent.ts)**:
   - In `cancelOrder`: replaced sequential loop releasing reservations across order items with:
     ```typescript
     yield* Effect.forEach(
@@ -42,7 +42,7 @@ This implementation applies idiomatic Effect TS best practices and concurrency e
     );
     ```
   - In `shipOrder`: replaced sequential loop fulfilling reservations with `Effect.forEach(..., { concurrency: "unbounded" })`.
-- **[`src/agents/cart/cart-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/cart/cart-agent.ts)**:
+- **[`src/agents/cart/cart-agent.ts`](../../src/agents/cart/cart-agent.ts)**:
   - In `confirmCheckout`: replaced sequential reservation fulfillment loop with `Effect.forEach(..., { concurrency: "unbounded" })`.
   - In `cancelCheckout`: replaced sequential reservation release loop with `Effect.forEach(..., { concurrency: "unbounded" })`.
   - In cart price and product refresh (`getOrCreateCart` / `refreshCart`): replaced sequential product and pricing client fetch with `Effect.forEach(activeCart.items, ..., { concurrency: "unbounded" })` and filtered non-null items.

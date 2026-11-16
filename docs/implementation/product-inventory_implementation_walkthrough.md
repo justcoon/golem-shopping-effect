@@ -29,10 +29,10 @@ flowchart TD
 ## 2. Key Code Modifications
 
 ### 2.1 `InventoryAgent` & Schemas (`src/agents/inventory/`)
-- [`inventory-schema.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/inventory/inventory-schema.ts):
+- [`inventory-schema.ts`](../../src/agents/inventory/inventory-schema.ts):
   - Defined schemas: `InventoryItem`, `OrderAllocation`, `Inventory`, `Availability`, and `InsufficientInventoryError`.
   - Added helper `mergeInventoryItems` for merging regional updates.
-- [`inventory-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/inventory/inventory-agent.ts):
+- [`inventory-agent.ts`](../../src/agents/inventory/inventory-agent.ts):
   - Created durable `InventoryAgent` mounted at `/v1/inventory/{id}`.
   - Implemented methods:
     - `initializeInventory`: Sets initial regional stock (`POST /`).
@@ -45,9 +45,9 @@ flowchart TD
   - Configured `InventoryAgent` in `golem.yaml` under `httpApi.deployments.local.agents`.
 
 ### 2.2 Cart Integration (`src/agents/cart/`)
-- [`cart-schema.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/cart/cart-schema.ts):
+- [`cart-schema.ts`](../../src/agents/cart/cart-schema.ts):
   - Added `InsufficientStockError` to `AddItemError`, `UpdateItemQuantityError`, and `CheckoutError`.
-- [`cart-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/cart/cart-agent.ts):
+- [`cart-agent.ts`](../../src/agents/cart/cart-agent.ts):
   - In `addItem`, execution strictly follows the priority order:
     1. **Product Verification**: Checks `ProductAgent.get({ id })` and fails immediately with `product-not-found` if the product does not exist.
     2. **Pricing Verification**: Retrieves `PricingAgent.getPrice` for new items and fails with `pricing-not-found` if pricing is missing.
@@ -56,9 +56,9 @@ flowchart TD
   - In `checkout`, maps `insufficient-inventory` failures from `OrderAgent.create` directly into typed `insufficient-stock` checkout errors.
 
 ### 2.3 Order Lifecycle & Post-Checkout Modifications (`src/agents/order/`)
-- [`order-schema.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/order/order-schema.ts):
+- [`order-schema.ts`](../../src/agents/order/order-schema.ts):
   - Integrated `InsufficientInventoryError` into `InitOrderError`, `AddItemError`, and `UpdateItemQuantityError`.
-- [`order-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/order/order-agent.ts):
+- [`order-agent.ts`](../../src/agents/order/order-agent.ts):
   - **`addItem`**: Validates `ProductAgent` first, then validates `PricingAgent` for new items, and only performs the stateful `InventoryAgent.reserveQuantity` once both product and pricing are confirmed valid. This eliminates any need for compensating reservation cancellations when pricing is absent.
   - **`create`**: Atomically reserves stock in `InventoryAgent` for all line items using `INVENTORY_REGION_DEFAULT`. If any item reservation fails, rollback logic releases all already-reserved items for that order.
   - **`updateItemQuantity`**: Adjusts the existing reservation up or down using `INVENTORY_REGION_DEFAULT`.
@@ -67,17 +67,17 @@ flowchart TD
   - **`shipOrder`**: Calls `fulfillReservation` on all items, permanently decrementing physical stock and clearing allocations.
 
 ### 2.4 Product Search & Shopping Assistant
-- [`product-search-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/product-search/product-search-agent.ts):
+- [`product-search-agent.ts`](../../src/agents/product-search/product-search-agent.ts):
   - Enriched `ProductWithPrice` with `availableQuantity: Schema.optional(Schema.Number)` so search results expose real-time stock.
-- [`shopping-assistant-tools.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-tools.ts):
+- [`shopping-assistant-tools.ts`](../../src/agents/shopping-assistant/shopping-assistant-tools.ts):
   - Generated and registered `check_inventory` tool derived from `InventoryAgent.getAvailableQuantity`.
 
 ### 2.5 Seed Data, Import & Documentation
-- [`data/fixtures/tech_inventory.csv`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/data/fixtures/tech_inventory.csv):
+- [`data/fixtures/tech_inventory.csv`](../../data/fixtures/tech_inventory.csv):
   - Initialized 10 units in the `"global"` region for all 26 catalog products.
-- [`data/import.yaml`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/data/import.yaml) & [`data/README.md`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/data/README.md):
+- [`data/import.yaml`](../../data/import.yaml) & [`data/README.md`](../../data/README.md):
   - Added drill import step for `/v1/inventory/{{ item.productId }}` and documented sample data usage.
-- [`architecture.puml`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/architecture.puml) & [`README.md`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/README.md):
+- [`architecture.puml`](../../architecture.puml) & [`README.md`](../../README.md):
   - Documented `InventoryAgent`, gateway route `/v1/inventory/**`, and agent-to-agent interactions.
 
 ---

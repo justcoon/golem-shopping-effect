@@ -1,3 +1,4 @@
+import { type Config } from "@golemcloud/effect-golem";
 import { Schema } from "effect";
 
 export const LlmConfigSchema = Schema.Struct({
@@ -5,7 +6,13 @@ export const LlmConfigSchema = Schema.Struct({
   model: Schema.Redacted(Schema.String),
   apiUrl: Schema.Redacted(Schema.String),
 });
-export type LlmConfig = typeof LlmConfigSchema.Type;
+export type LlmConfig = Config.ConfigShape<typeof LlmConfigSchema.fields>;
+
+export interface ResolvedLlmConfig {
+  readonly apiKey: string;
+  readonly model: string;
+  readonly apiUrl?: string;
+}
 
 export const ChatRole = Schema.Union([
   Schema.Literal("system"),

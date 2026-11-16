@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { defineAgent, defineConfig, Http, method, Snapshot } from "@golemcloud/effect-golem";
+import { LlmConfigSchema } from "../../ai/index.js";
 import {
   RecommendedItems,
   ShoppingRecommendationAgentState,
@@ -8,11 +9,7 @@ import {
 export class ShoppingRecommendationConfig extends defineConfig(
   "ShoppingRecommendationAgent.Config",
   {
-    llm: Schema.Struct({
-      apiKey: Schema.Redacted(Schema.String),
-      model: Schema.Redacted(Schema.String),
-      apiUrl: Schema.Redacted(Schema.String),
-    }),
+    llm: LlmConfigSchema,
   },
 ) {}
 
