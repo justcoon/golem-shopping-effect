@@ -6,9 +6,7 @@ import {
   ShoppingRecommendationDefinition,
 } from "./shopping-recommendation-definition.js";
 import { executeRecommendItems } from "./shopping-recommendation-logic.js";
-import {
-  ShoppingRecommendationAgentState,
-} from "./shopping-recommendation-schema.js";
+import { ShoppingRecommendationAgentState } from "./shopping-recommendation-schema.js";
 
 const resolveLlmConfig = Effect.gen(function* () {
   const config = yield* ShoppingRecommendationConfig;

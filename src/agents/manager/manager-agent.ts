@@ -1,5 +1,6 @@
 import { Effect, Redacted, Ref } from "effect";
 import { Snapshot } from "@golemcloud/effect-golem";
+import { getCurrentDatetimeIso } from "../../common/index.js";
 import { ChatMessage, executeAgentChatTurn, executeAgentChatTurnStream } from "../../ai/index.js";
 import {
   ManagerAgentConfig,
@@ -60,7 +61,7 @@ export const ManagerAgent = ManagerAgentDefinition.implement<Ref.Ref<ManagerAgen
               "Manager assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
           });
 
-          const now = new Date().toISOString();
+          const now = yield* getCurrentDatetimeIso;
           const userMsg: ChatMessage = {
             role: "user",
             content: message,
@@ -106,8 +107,8 @@ export const ManagerAgent = ManagerAgentDefinition.implement<Ref.Ref<ManagerAgen
           missingApiKeyMessage:
             "Manager assistant is ready, but no LLM API key is configured. Please provide GEMINI_API_KEY or OPENROUTER_KEY in your environment or secrets.",
           onTurnComplete: (result) =>
-            Ref.update(state, (prev) => {
-              const now = new Date().toISOString();
+            Effect.gen(function* () {
+              const now = yield* getCurrentDatetimeIso;
               const userMsg: ChatMessage = {
                 role: "user",
                 content: message,
@@ -121,10 +122,10 @@ export const ManagerAgent = ManagerAgentDefinition.implement<Ref.Ref<ManagerAgen
                 timestamp: now,
                 type: result.type,
               };
-              return {
+              yield* Ref.update(state, (prev) => ({
                 ...prev,
                 messages: [...prev.messages, userMsg, assistantMsg],
-              };
+              }));
             }),
         });
       }).pipe(Effect.orDie),

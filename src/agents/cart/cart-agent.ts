@@ -483,12 +483,17 @@ export const CartAgent = CartAgentDefinition.implement<Ref.Ref<CartAgentState>>(
                 ),
               );
 
-            for (const item of current.items) {
-              const invClient = yield* InventoryAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              yield* invClient.fulfillReservation.trigger({ orderId }).pipe(Effect.ignore);
-            }
+            yield* Effect.forEach(
+              current.items,
+              (item) =>
+                Effect.gen(function* () {
+                  const invClient = yield* InventoryAgent.client
+                    .get({ id: item.productId })
+                    .pipe(Effect.orDie);
+                  yield* invClient.fulfillReservation.trigger({ orderId }).pipe(Effect.ignore);
+                }),
+              { concurrency: "unbounded" },
+            );
 
             const updatedCart: Cart = {
               ...current,
@@ -519,12 +524,17 @@ export const CartAgent = CartAgentDefinition.implement<Ref.Ref<CartAgentState>>(
           Effect.gen(function* () {
             const { cart } = yield* Ref.get(state);
             if (cart && cart.draft && cart.draft.orderId === orderId) {
-              for (const item of cart.items) {
-                const invClient = yield* InventoryAgent.client
-                  .get({ id: item.productId })
-                  .pipe(Effect.orDie);
-                yield* invClient.releaseReservation.trigger({ orderId }).pipe(Effect.ignore);
-              }
+              yield* Effect.forEach(
+                cart.items,
+                (item) =>
+                  Effect.gen(function* () {
+                    const invClient = yield* InventoryAgent.client
+                      .get({ id: item.productId })
+                      .pipe(Effect.orDie);
+                    yield* invClient.releaseReservation.trigger({ orderId }).pipe(Effect.ignore);
+                  }),
+                { concurrency: "unbounded" },
+              );
               const now = yield* getCurrentDatetime;
               yield* Ref.update(state, (curr) => ({
                 ...curr,
@@ -578,34 +588,38 @@ export const CartAgent = CartAgentDefinition.implement<Ref.Ref<CartAgentState>>(
               return activeCart;
             }
 
-            const refreshedItems: CartItem[] = [];
+            const refreshedItems = (yield* Effect.forEach(
+              activeCart.items,
+              (item) =>
+                Effect.gen(function* () {
+                  const productClient = yield* ProductAgent.client
+                    .get({ id: item.productId })
+                    .pipe(Effect.orDie);
+                  const product = yield* productClient.get({}).pipe(Effect.orDie);
 
-            for (const item of activeCart.items) {
-              const productClient = yield* ProductAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              const product = yield* productClient.get({}).pipe(Effect.orDie);
+                  const pricingClient = yield* PricingAgent.client
+                    .get({ id: item.productId })
+                    .pipe(Effect.orDie);
+                  const pricing = yield* pricingClient
+                    .getPrice({
+                      currency: activeCart.currency,
+                      region: PRICING_REGION_DEFAULT,
+                    })
+                    .pipe(Effect.orDie);
 
-              const pricingClient = yield* PricingAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              const pricing = yield* pricingClient
-                .getPrice({
-                  currency: activeCart.currency,
-                  region: PRICING_REGION_DEFAULT,
-                })
-                .pipe(Effect.orDie);
-
-              if (product && pricing) {
-                refreshedItems.push({
-                  productId: item.productId,
-                  productName: product.name,
-                  productBrand: product.brand,
-                  price: pricing.price,
-                  quantity: item.quantity,
-                });
-              }
-            }
+                  if (product && pricing) {
+                    return {
+                      productId: item.productId,
+                      productName: product.name,
+                      productBrand: product.brand,
+                      price: pricing.price,
+                      quantity: item.quantity,
+                    } satisfies CartItem;
+                  }
+                  return null;
+                }),
+              { concurrency: "unbounded" },
+            )).filter((item): item is CartItem => item !== null);
 
             const updatedCart: Cart = {
               ...activeCart,

@@ -548,14 +548,19 @@ export const OrderAgent = defineAgent({
               });
             }
 
-            for (const item of current.items) {
-              const invClient = yield* InventoryAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              yield* invClient.releaseReservation
-                .trigger({ orderId: current.orderId })
-                .pipe(Effect.ignore);
-            }
+            yield* Effect.forEach(
+              current.items,
+              (item) =>
+                Effect.gen(function* () {
+                  const invClient = yield* InventoryAgent.client
+                    .get({ id: item.productId })
+                    .pipe(Effect.orDie);
+                  yield* invClient.releaseReservation
+                    .trigger({ orderId: current.orderId })
+                    .pipe(Effect.ignore);
+                }),
+              { concurrency: "unbounded" },
+            );
 
             const date = yield* getCurrentDatetime;
             const updated: Order = {
@@ -580,14 +585,19 @@ export const OrderAgent = defineAgent({
               });
             }
 
-            for (const item of current.items) {
-              const invClient = yield* InventoryAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              yield* invClient.fulfillReservation
-                .trigger({ orderId: current.orderId })
-                .pipe(Effect.ignore);
-            }
+            yield* Effect.forEach(
+              current.items,
+              (item) =>
+                Effect.gen(function* () {
+                  const invClient = yield* InventoryAgent.client
+                    .get({ id: item.productId })
+                    .pipe(Effect.orDie);
+                  yield* invClient.fulfillReservation
+                    .trigger({ orderId: current.orderId })
+                    .pipe(Effect.ignore);
+                }),
+              { concurrency: "unbounded" },
+            );
 
             const date = yield* getCurrentDatetime;
             const updated: Order = {

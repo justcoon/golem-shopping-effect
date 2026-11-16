@@ -1,5 +1,6 @@
 import { Effect, Redacted, Ref } from "effect";
 import { Snapshot } from "@golemcloud/effect-golem";
+import { getCurrentDatetimeIso } from "../../common/index.js";
 import {
   ShoppingAssistantAgentState,
   ShoppingAssistantConfig,
@@ -42,7 +43,7 @@ export const ShoppingAssistantAgent = ShoppingAssistantDefinition.implement<
             userMessage: message,
           });
 
-          const now = new Date().toISOString();
+          const now = yield* getCurrentDatetimeIso;
           const userMsg: ChatMessage = {
             role: "user",
             content: message,
@@ -83,8 +84,8 @@ export const ShoppingAssistantAgent = ShoppingAssistantDefinition.implement<
           history: messages,
           userMessage: message,
           onTurnComplete: (result) =>
-            Ref.update(state, (prev) => {
-              const now = new Date().toISOString();
+            Effect.gen(function* () {
+              const now = yield* getCurrentDatetimeIso;
               const userMsg: ChatMessage = {
                 role: "user",
                 content: message,
@@ -98,10 +99,10 @@ export const ShoppingAssistantAgent = ShoppingAssistantDefinition.implement<
                 timestamp: now,
                 type: result.type,
               };
-              return {
+              yield* Ref.update(state, (prev) => ({
                 ...prev,
                 messages: [...prev.messages, userMsg, assistantMsg],
-              };
+              }));
             }),
         });
       }).pipe(Effect.orDie),
