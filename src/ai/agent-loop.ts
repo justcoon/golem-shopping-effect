@@ -95,14 +95,12 @@ export function buildInitialAgentMessages(
         // 1. Assistant message containing the tool calls
         initialMessages.push({
           role: "assistant",
-          content: toolCalls.map(
-            (tc): ToolCall => ({
-              type: "toolCall",
-              id: tc.id,
-              name: tc.toolName,
-              arguments: parseToolArguments(tc.arguments),
-            }),
-          ),
+          content: toolCalls.map((tc): ToolCall => ({
+            type: "toolCall",
+            id: tc.id,
+            name: tc.toolName,
+            arguments: parseToolArguments(tc.arguments),
+          })),
           api: resolvedModel.api,
           provider: resolvedModel.provider,
           model: resolvedModel.id,

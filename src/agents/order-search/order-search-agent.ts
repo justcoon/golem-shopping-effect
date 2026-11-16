@@ -92,7 +92,7 @@ function sortOrdersDesc(orders: Order[]): Order[] {
 
 export const OrderSearchAgent = defineAgent({
   name: "OrderSearchAgent",
-  mode: "durable",
+  mode: "ephemeral",
   id: {},
   http: Http.mount("/v1/order-search"),
   methods: {
@@ -138,7 +138,7 @@ export const OrderSearchAgent = defineAgent({
     }),
   },
 }).implement({
-  init: () => Effect.succeed({}),
+  init: () => Effect.void,
   methods: () => ({
     searchOrders: ({ query, status, userId, limit }) =>
       Effect.scoped(
