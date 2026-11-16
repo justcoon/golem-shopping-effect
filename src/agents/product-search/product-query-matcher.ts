@@ -1,72 +1,14 @@
+import { parseSearchQuery, textMatches, valueMatches } from "../../common/index.js";
 import { Product } from "../product/product-schema.js";
 
 export class ProductQueryMatcher {
-  private terms: string[];
-  private fieldFilters: Map<string, string>;
+  private terms: readonly string[];
+  private fieldFilters: ReadonlyMap<string, string>;
 
   constructor(query: string) {
-    const { terms, fieldFilters } = this.parseQuery(query);
+    const { terms, fieldFilters } = parseSearchQuery(query);
     this.terms = terms;
     this.fieldFilters = fieldFilters;
-  }
-
-  private parseQuery(query: string): {
-    terms: string[];
-    fieldFilters: Map<string, string>;
-  } {
-    const terms: string[] = [];
-    const fieldFilters = new Map<string, string>();
-    const tokens = this.tokenize(query);
-
-    for (const part of tokens) {
-      const fieldMatch = part.match(/^([a-zA-Z]+):(.*)$/);
-      if (fieldMatch) {
-        const field = fieldMatch[1];
-        const value = fieldMatch[2];
-        if (field && value) {
-          fieldFilters.set(field.toLowerCase(), value);
-        }
-      } else {
-        terms.push(part);
-      }
-    }
-
-    return { terms, fieldFilters };
-  }
-
-  private tokenize(query: string): string[] {
-    const tokens: string[] = [];
-    let current = "";
-    let inQuotes = false;
-
-    for (const char of query) {
-      if (char === " " && !inQuotes) {
-        if (current.trim()) {
-          tokens.push(current.trim());
-          current = "";
-        }
-      } else if (char === '"') {
-        inQuotes = !inQuotes;
-      } else {
-        current += char;
-      }
-    }
-
-    if (current.trim()) {
-      tokens.push(current.trim());
-    }
-
-    return tokens;
-  }
-
-  private textMatches(text: string, query: string): boolean {
-    if (query === "*") return true;
-    return text.toLowerCase().includes(query.toLowerCase());
-  }
-
-  private valueMatches(text: string, query: string): boolean {
-    if (query === "*") return true;
-    return text === query;
   }
 
   public matches(product: Product): boolean {
@@ -75,20 +17,20 @@ export class ProductQueryMatcher {
 
       switch (field) {
         case "productid":
-          matches = this.valueMatches(product.productId, value);
+          matches = valueMatches(product.productId, value, true);
           break;
         case "name":
-          matches = this.textMatches(product.name, value);
+          matches = textMatches(product.name, value);
           break;
         case "brand":
-          matches = this.textMatches(product.brand, value);
+          matches = textMatches(product.brand, value);
           break;
         case "description":
-          matches = this.textMatches(product.description, value);
+          matches = textMatches(product.description, value);
           break;
         case "tag":
         case "tags":
-          matches = product.tags?.some((tag) => this.textMatches(tag, value)) ?? false;
+          matches = product.tags?.some((tag) => textMatches(tag, value)) ?? false;
           break;
         default:
           return false;
