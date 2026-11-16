@@ -1,5 +1,5 @@
 import { Effect, Ref, Schema } from "effect";
-import { defineAgent, Http, method } from "@golemcloud/effect-golem";
+import { defineAgent, Http, method, Snapshot } from "@golemcloud/effect-golem";
 import {
   CURRENCY,
   getCurrentDatetime,
@@ -17,6 +17,7 @@ import {
   getOrderItemsTotalPrice,
   InitOrderError,
   Order,
+  OrderAgentState,
   OrderItem,
   OrderUpdated,
   RemoveItemError,
@@ -26,15 +27,14 @@ import {
   UpdateItemQuantityError,
 } from "./order-schema.js";
 
-interface OrderAgentState {
-  readonly orderId: string;
-  readonly order: Order | null;
-}
-
 export const OrderAgent = defineAgent({
   name: "OrderAgent",
   mode: "durable",
   id: { id: Schema.String },
+  snapshotting: Snapshot.define({
+    schema: OrderAgentState,
+    policy: Snapshot.policy.everyN(10),
+  }),
   http: Http.mount("/v1/order/{id}"),
   methods: {
     create: method({
@@ -133,12 +133,13 @@ export const OrderAgent = defineAgent({
         "Call this when the user asks for details, status, tracking, or items in a specific order.",
     }),
   },
-}).implement({
+}).implement<Ref.Ref<OrderAgentState>>({
   init: ({ id }) =>
     Ref.make<OrderAgentState>({
       orderId: id,
       order: null,
     }),
+  snapshot: Snapshot.ref<OrderAgentState>(),
   methods: (state) => {
     const getOrCreateOrder = Effect.gen(function* () {
       const { orderId, order } = yield* Ref.get(state);

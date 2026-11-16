@@ -1,15 +1,12 @@
 import { Effect, Redacted, Ref } from "effect";
+import { Snapshot } from "@golemcloud/effect-golem";
 import {
+  ShoppingAssistantAgentState,
   ShoppingAssistantConfig,
   ShoppingAssistantDefinition,
 } from "./shopping-assistant-definition.js";
 import { executeChatTurn, executeChatTurnStream } from "./shopping-assistant-loop.js";
 import { ChatMessage } from "../../ai/index.js";
-
-interface ShoppingAssistantAgentState {
-  readonly userId: string;
-  readonly messages: readonly ChatMessage[];
-}
 
 const resolveLlmConfig = Effect.gen(function* () {
   const config = yield* ShoppingAssistantConfig;
@@ -20,14 +17,15 @@ const resolveLlmConfig = Effect.gen(function* () {
   return { apiKey, model, apiUrl };
 });
 
-export const ShoppingAssistantAgent = ShoppingAssistantDefinition.implement({
+export const ShoppingAssistantAgent = ShoppingAssistantDefinition.implement<
+  Ref.Ref<ShoppingAssistantAgentState>
+>({
   init: ({ id }) =>
-    Effect.gen(function* () {
-      return yield* Ref.make<ShoppingAssistantAgentState>({
-        userId: id,
-        messages: [],
-      });
+    Ref.make<ShoppingAssistantAgentState>({
+      userId: id,
+      messages: [],
     }),
+  snapshot: Snapshot.ref<ShoppingAssistantAgentState>(),
   methods: (state) => ({
     chat: ({ message }) =>
       Effect.scoped(

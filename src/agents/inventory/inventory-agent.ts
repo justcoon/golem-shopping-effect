@@ -1,9 +1,10 @@
 import { Effect, Ref, Schema } from "effect";
-import { defineAgent, Http, method } from "@golemcloud/effect-golem";
+import { defineAgent, Http, method, Snapshot } from "@golemcloud/effect-golem";
 import { getCurrentDatetime } from "../../common/index.js";
 import {
   Availability,
   Inventory,
+  InventoryAgentState,
   InventoryItem,
   isAllocationExpired,
   mergeInventoryItems,
@@ -12,15 +13,14 @@ import {
   ReserveQuantityError,
 } from "./inventory-schema.js";
 
-interface InventoryAgentState {
-  readonly productId: string;
-  readonly inventory: Inventory | null;
-}
-
 export const InventoryAgent = defineAgent({
   name: "InventoryAgent",
   mode: "durable",
   id: { id: Schema.String },
+  snapshotting: Snapshot.define({
+    schema: InventoryAgentState,
+    policy: Snapshot.policy.everyN(10),
+  }),
   http: Http.mount("/v1/inventory/{id}"),
   methods: {
     initializeInventory: method({
@@ -81,12 +81,13 @@ export const InventoryAgent = defineAgent({
       description: "Fulfill reservation for an order upon shipping",
     }),
   },
-}).implement({
+}).implement<Ref.Ref<InventoryAgentState>>({
   init: ({ id }) =>
     Ref.make<InventoryAgentState>({
       productId: id,
       inventory: null,
     }),
+  snapshot: Snapshot.ref<InventoryAgentState>(),
   methods: (state) => ({
     initializeInventory: ({ items }) =>
       Effect.gen(function* () {

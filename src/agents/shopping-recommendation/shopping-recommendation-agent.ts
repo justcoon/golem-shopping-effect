@@ -1,16 +1,14 @@
 import { Effect, Redacted, Ref } from "effect";
+import { Snapshot } from "@golemcloud/effect-golem";
 import { getCurrentDatetime } from "../../common/index.js";
 import {
   ShoppingRecommendationConfig,
   ShoppingRecommendationDefinition,
 } from "./shopping-recommendation-definition.js";
 import { executeRecommendItems } from "./shopping-recommendation-logic.js";
-import { RecommendedItems } from "./shopping-recommendation-schema.js";
-
-interface ShoppingRecommendationAgentState {
-  readonly userId: string;
-  readonly recommendedItems: RecommendedItems;
-}
+import {
+  ShoppingRecommendationAgentState,
+} from "./shopping-recommendation-schema.js";
 
 const resolveLlmConfig = Effect.gen(function* () {
   const config = yield* ShoppingRecommendationConfig;
@@ -21,7 +19,9 @@ const resolveLlmConfig = Effect.gen(function* () {
   return { apiKey, model, apiUrl };
 });
 
-export const ShoppingRecommendationAgent = ShoppingRecommendationDefinition.implement({
+export const ShoppingRecommendationAgent = ShoppingRecommendationDefinition.implement<
+  Ref.Ref<ShoppingRecommendationAgentState>
+>({
   init: ({ id }) =>
     Effect.gen(function* () {
       const date = yield* getCurrentDatetime;
@@ -35,6 +35,7 @@ export const ShoppingRecommendationAgent = ShoppingRecommendationDefinition.impl
         },
       });
     }),
+  snapshot: Snapshot.ref<ShoppingRecommendationAgentState>(),
   methods: (state) => ({
     getRecommendedItems: () =>
       Ref.get(state).pipe(Effect.map(({ recommendedItems }) => recommendedItems)),

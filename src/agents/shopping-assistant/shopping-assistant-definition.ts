@@ -1,5 +1,12 @@
 import { Schema } from "effect";
-import { defineAgent, defineConfig, Http, method, WitTypes } from "@golemcloud/effect-golem";
+import {
+  defineAgent,
+  defineConfig,
+  Http,
+  method,
+  Snapshot,
+  WitTypes,
+} from "@golemcloud/effect-golem";
 import { ChatChunk, ChatMessage, ChatResponse } from "../../ai/index.js";
 
 export class ShoppingAssistantConfig extends defineConfig("ShoppingAssistantAgent.Config", {
@@ -10,11 +17,21 @@ export class ShoppingAssistantConfig extends defineConfig("ShoppingAssistantAgen
   }),
 }) {}
 
+export const ShoppingAssistantAgentState = Schema.Struct({
+  userId: Schema.String,
+  messages: Schema.Array(ChatMessage),
+});
+export type ShoppingAssistantAgentState = typeof ShoppingAssistantAgentState.Type;
+
 export const ShoppingAssistantDefinition = defineAgent({
   name: "ShoppingAssistantAgent",
   mode: "durable",
   id: { id: Schema.String },
   config: ShoppingAssistantConfig,
+  snapshotting: Snapshot.define({
+    schema: ShoppingAssistantAgentState,
+    policy: Snapshot.policy.everyN(5),
+  }),
   http: Http.mount("/v1/assistant/{id}"),
   methods: {
     chat: method({

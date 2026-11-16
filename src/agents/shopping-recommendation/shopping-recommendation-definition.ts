@@ -1,6 +1,9 @@
 import { Schema } from "effect";
-import { defineAgent, defineConfig, Http, method } from "@golemcloud/effect-golem";
-import { RecommendedItems } from "./shopping-recommendation-schema.js";
+import { defineAgent, defineConfig, Http, method, Snapshot } from "@golemcloud/effect-golem";
+import {
+  RecommendedItems,
+  ShoppingRecommendationAgentState,
+} from "./shopping-recommendation-schema.js";
 
 export class ShoppingRecommendationConfig extends defineConfig(
   "ShoppingRecommendationAgent.Config",
@@ -18,6 +21,10 @@ export const ShoppingRecommendationDefinition = defineAgent({
   mode: "durable",
   id: { id: Schema.String },
   config: ShoppingRecommendationConfig,
+  snapshotting: Snapshot.define({
+    schema: ShoppingRecommendationAgentState,
+    policy: Snapshot.policy.everyN(5),
+  }),
   http: Http.mount("/v1/recommendation/{id}"),
   methods: {
     getRecommendedItems: method({

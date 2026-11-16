@@ -1,4 +1,5 @@
 import { DateTime, Duration, Effect, Ref } from "effect";
+import { Snapshot } from "@golemcloud/effect-golem";
 import {
   arrayChunks,
   CHECKOUT_RESERVATION_TTL_SECONDS,
@@ -14,19 +15,21 @@ import { PricingAgent } from "../pricing/index.js";
 import { ProductAgent } from "../product/index.js";
 import { ShoppingRecommendationDefinition } from "../shopping-recommendation/shopping-recommendation-definition.js";
 import { CartAgentDefinition } from "./cart-definition.js";
-import { Cart, CartItem, CheckoutDraft, getCartItemsTotalPrice } from "./cart-schema.js";
+import {
+  Cart,
+  CartAgentState,
+  CartItem,
+  CheckoutDraft,
+  getCartItemsTotalPrice,
+} from "./cart-schema.js";
 
-interface CartAgentState {
-  readonly userId: string;
-  readonly cart: Cart | null;
-}
-
-export const CartAgent = CartAgentDefinition.implement({
+export const CartAgent = CartAgentDefinition.implement<Ref.Ref<CartAgentState>>({
   init: ({ id }) =>
     Ref.make<CartAgentState>({
       userId: id,
       cart: null,
     }),
+  snapshot: Snapshot.ref<CartAgentState>(),
   methods: (state) => {
     const getOrCreateCart = Effect.gen(function* () {
       const { userId, cart } = yield* Ref.get(state);

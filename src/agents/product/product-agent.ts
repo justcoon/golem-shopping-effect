@@ -1,17 +1,16 @@
 import { Effect, Ref, Schema } from "effect";
-import { defineAgent, Http, method } from "@golemcloud/effect-golem";
+import { defineAgent, Http, method, Snapshot } from "@golemcloud/effect-golem";
 import { getCurrentDatetime } from "../../common/index.js";
-import { Product } from "./product-schema.js";
-
-interface ProductAgentState {
-  readonly productId: string;
-  readonly product: Product | null;
-}
+import { Product, ProductAgentState } from "./product-schema.js";
 
 export const ProductAgent = defineAgent({
   name: "ProductAgent",
   mode: "durable",
   id: { id: Schema.String },
+  snapshotting: Snapshot.define({
+    schema: ProductAgentState,
+    policy: Snapshot.policy.everyN(10),
+  }),
   http: Http.mount("/v1/product/{id}"),
   methods: {
     initializeProduct: method({
@@ -33,12 +32,13 @@ export const ProductAgent = defineAgent({
       description: "Get product",
     }),
   },
-}).implement({
+}).implement<Ref.Ref<ProductAgentState>>({
   init: ({ id }) =>
     Ref.make<ProductAgentState>({
       productId: id,
       product: null,
     }),
+  snapshot: Snapshot.ref<ProductAgentState>(),
   methods: (state) => ({
     initializeProduct: ({ name, brand, description, tags }) =>
       Effect.gen(function* () {

@@ -1,16 +1,33 @@
 import { Schema } from "effect";
-import { defineAgent, defineConfig, Http, method, WitTypes } from "@golemcloud/effect-golem";
+import {
+  defineAgent,
+  defineConfig,
+  Http,
+  method,
+  Snapshot,
+  WitTypes,
+} from "@golemcloud/effect-golem";
 import { ChatChunk, ChatMessage, ChatResponse, LlmConfigSchema } from "../../ai/index.js";
 
 export class ManagerAgentConfig extends defineConfig("ManagerAgent.Config", {
   llm: LlmConfigSchema,
 }) {}
 
+export const ManagerAgentState = Schema.Struct({
+  managerId: Schema.String,
+  messages: Schema.Array(ChatMessage),
+});
+export type ManagerAgentState = typeof ManagerAgentState.Type;
+
 export const ManagerAgentDefinition = defineAgent({
   name: "ManagerAgent",
   mode: "durable",
   id: { id: Schema.String },
   config: ManagerAgentConfig,
+  snapshotting: Snapshot.define({
+    schema: ManagerAgentState,
+    policy: Snapshot.policy.everyN(5),
+  }),
   http: Http.mount("/v1/manager/{id}"),
   methods: {
     chat: method({

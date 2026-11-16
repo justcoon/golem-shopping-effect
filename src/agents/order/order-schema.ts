@@ -127,3 +127,9 @@ export type OrderUpdated = typeof OrderUpdated.Type;
 
 export const getOrderItemsTotalPrice = (items: readonly OrderItem[]): number =>
   items.reduce((total, item) => total + item.price * item.quantity, 0);
+
+export const OrderAgentState = Schema.Struct({
+  orderId: Schema.String,
+  order: Schema.NullOr(Order),
+});
+export type OrderAgentState = typeof OrderAgentState.Type;

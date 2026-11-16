@@ -1,6 +1,11 @@
 import { Effect, Redacted, Ref } from "effect";
+import { Snapshot } from "@golemcloud/effect-golem";
 import { ChatMessage, executeAgentChatTurn, executeAgentChatTurnStream } from "../../ai/index.js";
-import { ManagerAgentConfig, ManagerAgentDefinition } from "./manager-definition.js";
+import {
+  ManagerAgentConfig,
+  ManagerAgentDefinition,
+  ManagerAgentState,
+} from "./manager-definition.js";
 import { getManagerPiTools } from "./manager-tools.js";
 
 export const MANAGER_SYSTEM_PROMPT = `You are the Operations Manager Assistant for our e-commerce platform. Help store managers inspect orders, track inventory, update order details, and process shipments. Politely decline requests unrelated to store operations.
@@ -19,11 +24,6 @@ export const MANAGER_SYSTEM_PROMPT = `You are the Operations Manager Assistant f
    - When adding items or increasing quantities on an order, verify the product exists and has sufficient stock using check_inventory.
 6. **Order Presentation:** When displaying orders, provide a clean summary containing: Order ID, Customer ID, Status (new, shipped, or cancelled), Itemized list, and Total.`;
 
-interface ManagerAgentState {
-  readonly managerId: string;
-  readonly messages: ChatMessage[];
-}
-
 const resolveLlmConfig = Effect.gen(function* () {
   const config = yield* ManagerAgentConfig;
   const apiKey = Redacted.value(yield* config.llm.apiKey.get);
@@ -32,13 +32,13 @@ const resolveLlmConfig = Effect.gen(function* () {
   return { apiKey, model, apiUrl };
 });
 
-export const ManagerAgent = ManagerAgentDefinition.implement({
+export const ManagerAgent = ManagerAgentDefinition.implement<Ref.Ref<ManagerAgentState>>({
   init: ({ id }) =>
     Ref.make<ManagerAgentState>({
       managerId: id,
       messages: [],
     }),
-
+  snapshot: Snapshot.ref<ManagerAgentState>(),
   methods: (state) => ({
     chat: ({ message }) =>
       Effect.scoped(
