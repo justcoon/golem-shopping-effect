@@ -1,89 +1,25 @@
-import { Chunk, DateTime, Effect, Schema, Stream } from "effect";
-import { Agents, defineAgent, Http, method } from "@golemcloud/effect-golem";
-import { arrayChunks } from "../../common/index.js";
+import { DateTime, Effect, Schema, Stream } from "effect";
+import { defineAgent, Http, method } from "@golemcloud/effect-golem";
+import { streamAgentIds } from "../../common/agent-discovery.js";
 import { Order, OrderAgent, OrderStatus } from "../order/index.js";
 import { OrderQueryMatcher } from "./order-query-matcher.js";
 
-function getOrderAgentId(agentName: string): string | undefined {
-  const match = agentName.match(/^OrderAgent\("([^"]+)"\)$/);
-  return match ? match[1] : undefined;
-}
-
-function fetchOrdersByIds(ids: readonly string[]) {
-  return Effect.gen(function* () {
-    const result: Order[] = [];
-
-    if (ids.length > 0) {
-      const idChunks = arrayChunks(ids, 5);
-      for (const chunk of idChunks) {
-        const orderEffects = chunk.map((id) =>
-          Effect.gen(function* () {
-            const client = yield* OrderAgent.client.get({ id }).pipe(Effect.orDie);
-            return yield* client.get({}).pipe(Effect.orDie);
-          }),
-        );
-
-        const orders = yield* Effect.all(orderEffects, {
-          concurrency: "unbounded",
-        });
-        for (const order of orders) {
-          if (order && order.orderId && order.items) {
-            result.push(order);
-          }
-        }
-      }
-    }
-
-    return result;
-  });
-}
-
-function getAllOrderAgentIds() {
-  return Effect.gen(function* () {
-    const componentId = yield* Agents.resolveComponentId("golem-shopping-effect:effect-main").pipe(
-      Effect.catch(() =>
-        Agents.getSelfMetadata.pipe(
-          Effect.map((meta) => meta.agentId.componentId),
-          Effect.catch(() => Effect.succeed(undefined)),
+function streamAllOrders() {
+  return streamAgentIds({ agentPrefix: "OrderAgent" }).pipe(
+    Stream.mapEffect(
+      (id) =>
+        OrderAgent.client.get({ id }).pipe(
+          Effect.flatMap((client) => client.get({})),
+          Effect.orDie,
         ),
-      ),
-    );
-
-    if (!componentId) {
-      yield* Effect.logWarning("OrderSearchAgent: ComponentId could not be resolved");
-      return [];
-    }
-
-    const processedIds = new Set<string>();
-    const filter = Agents.Filter.name("starts-with", "OrderAgent(");
-    const agentMetadataStream = Agents.getAgents({
-      componentId,
-      filter,
-      precise: true,
-    });
-
-    const agentMetadataChunk = yield* Stream.runCollect(agentMetadataStream).pipe(
-      Effect.catch((err) =>
-        Effect.logWarning(`Failed to stream order agents: ${err}`).pipe(Effect.as(Chunk.empty())),
-      ),
-    );
-
-    const ids: string[] = [];
-    for (const meta of agentMetadataChunk) {
-      const rawName = meta.agentId.agentId;
-      const oid = getOrderAgentId(rawName);
-      if (oid && !processedIds.has(oid)) {
-        processedIds.add(oid);
-        ids.push(oid);
-      }
-    }
-
-    return ids;
-  });
+      { concurrency: 10 },
+    ),
+    Stream.filter((order): order is Order => Boolean(order && order.orderId && order.items)),
+  );
 }
 
-function sortOrdersDesc(orders: Order[]): Order[] {
-  return orders.sort((a, b) => {
+function sortOrdersDesc(orders: readonly Order[]): Order[] {
+  return [...orders].sort((a, b) => {
     const timeA = DateTime.toEpochMillis(a.createdAt);
     const timeB = DateTime.toEpochMillis(b.createdAt);
     return timeB - timeA;
@@ -92,7 +28,7 @@ function sortOrdersDesc(orders: Order[]): Order[] {
 
 export const OrderSearchAgent = defineAgent({
   name: "OrderSearchAgent",
-  mode: "durable",
+  mode: "ephemeral",
   id: {},
   http: Http.mount("/v1/order-search"),
   methods: {
@@ -138,29 +74,29 @@ export const OrderSearchAgent = defineAgent({
     }),
   },
 }).implement({
-  init: () => Effect.succeed({}),
+  init: () => Effect.void,
   methods: () => ({
     searchOrders: ({ query, status, userId, limit }) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const orderIds = yield* getAllOrderAgentIds();
-          const allOrders = yield* fetchOrdersByIds(orderIds);
-
           const matcher = query ? new OrderQueryMatcher(query) : null;
-          let matched = allOrders.filter((order) => {
-            if (status && order.orderStatus !== status) {
-              return false;
-            }
-            if (userId && order.userId !== userId) {
-              return false;
-            }
-            if (matcher && !matcher.matches(order)) {
-              return false;
-            }
-            return true;
-          });
+          const matched = yield* streamAllOrders().pipe(
+            Stream.filter((order) => {
+              if (status && order.orderStatus !== status) {
+                return false;
+              }
+              if (userId && order.userId !== userId) {
+                return false;
+              }
+              if (matcher && !matcher.matches(order)) {
+                return false;
+              }
+              return true;
+            }),
+            Stream.runCollect,
+            Effect.map(sortOrdersDesc),
+          );
 
-          matched = sortOrdersDesc(matched);
           const max = limit ?? 20;
           return matched.slice(0, max);
         }),
@@ -168,37 +104,28 @@ export const OrderSearchAgent = defineAgent({
 
     getOrdersByUserId: ({ userId, limit }) =>
       Effect.scoped(
-        Effect.gen(function* () {
-          const orderIds = yield* getAllOrderAgentIds();
-          const allOrders = yield* fetchOrdersByIds(orderIds);
-          let matched = allOrders.filter((order) => order.userId === userId);
-          matched = sortOrdersDesc(matched);
-          const max = limit ?? 20;
-          return matched.slice(0, max);
-        }),
+        streamAllOrders().pipe(
+          Stream.filter((order) => order.userId === userId),
+          Stream.runCollect,
+          Effect.map((orders) => sortOrdersDesc(orders).slice(0, limit ?? 20)),
+        ),
       ),
 
     getOrdersByStatus: ({ status, limit }) =>
       Effect.scoped(
-        Effect.gen(function* () {
-          const orderIds = yield* getAllOrderAgentIds();
-          const allOrders = yield* fetchOrdersByIds(orderIds);
-          let matched = allOrders.filter((order) => order.orderStatus === status);
-          matched = sortOrdersDesc(matched);
-          const max = limit ?? 20;
-          return matched.slice(0, max);
-        }),
+        streamAllOrders().pipe(
+          Stream.filter((order) => order.orderStatus === status),
+          Stream.runCollect,
+          Effect.map((orders) => sortOrdersDesc(orders).slice(0, limit ?? 20)),
+        ),
       ),
 
     getRecentOrders: ({ limit }) =>
       Effect.scoped(
-        Effect.gen(function* () {
-          const orderIds = yield* getAllOrderAgentIds();
-          const allOrders = yield* fetchOrdersByIds(orderIds);
-          const sorted = sortOrdersDesc(allOrders);
-          const max = limit ?? 20;
-          return sorted.slice(0, max);
-        }),
+        streamAllOrders().pipe(
+          Stream.runCollect,
+          Effect.map((orders) => sortOrdersDesc(orders).slice(0, limit ?? 20)),
+        ),
       ),
   }),
 });

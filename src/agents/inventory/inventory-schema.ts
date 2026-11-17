@@ -24,6 +24,12 @@ export const Inventory = Schema.Struct({
 });
 export type Inventory = typeof Inventory.Type;
 
+export const InventoryAgentState = Schema.Struct({
+  productId: Schema.String,
+  inventory: Schema.NullOr(Inventory),
+});
+export type InventoryAgentState = typeof InventoryAgentState.Type;
+
 export const Availability = Schema.Struct({
   productId: Schema.String,
   region: Schema.String,

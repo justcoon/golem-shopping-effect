@@ -1,23 +1,23 @@
 import { Effect, Ref, Schema } from "effect";
-import { defineAgent, Http, method } from "@golemcloud/effect-golem";
+import { defineAgent, Http, method, Snapshot } from "@golemcloud/effect-golem";
 import { getCurrentDatetime } from "../../common/index.js";
 import {
   mergePricingItems,
   mergeSalePricingItems,
   Pricing,
+  PricingAgentState,
   PricingItem,
   SalePricingItem,
 } from "./pricing-schema.js";
-
-interface PricingAgentState {
-  readonly productId: string;
-  readonly pricing: Pricing | null;
-}
 
 export const PricingAgent = defineAgent({
   name: "PricingAgent",
   mode: "durable",
   id: { id: Schema.String },
+  snapshotting: Snapshot.define({
+    schema: PricingAgentState,
+    policy: Snapshot.policy.everyN(10),
+  }),
   http: Http.mount("/v1/pricing/{id}"),
   methods: {
     initializePricing: method({
@@ -57,12 +57,13 @@ export const PricingAgent = defineAgent({
       description: "Get pricing",
     }),
   },
-}).implement({
+}).implement<Ref.Ref<PricingAgentState>>({
   init: ({ id }) =>
     Ref.make<PricingAgentState>({
       productId: id,
       pricing: null,
     }),
+  snapshot: Snapshot.ref<PricingAgentState>(),
   methods: (state) => ({
     initializePricing: ({ msrpPrices, listPrices, salePrices }) =>
       Effect.gen(function* () {

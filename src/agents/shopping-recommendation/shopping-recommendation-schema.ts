@@ -14,6 +14,12 @@ export const RecommendedItems = Schema.Struct({
 
 export type RecommendedItems = typeof RecommendedItems.Type;
 
+export const ShoppingRecommendationAgentState = Schema.Struct({
+  userId: Schema.String,
+  recommendedItems: RecommendedItems,
+});
+export type ShoppingRecommendationAgentState = typeof ShoppingRecommendationAgentState.Type;
+
 export interface LLMRecommendations {
   productIds: string[];
   productBrands: string[];

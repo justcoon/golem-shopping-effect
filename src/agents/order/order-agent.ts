@@ -1,5 +1,5 @@
 import { Effect, Ref, Schema } from "effect";
-import { defineAgent, Http, method } from "@golemcloud/effect-golem";
+import { defineAgent, Http, method, Snapshot } from "@golemcloud/effect-golem";
 import {
   CURRENCY,
   getCurrentDatetime,
@@ -7,7 +7,7 @@ import {
   orDieRpc,
   PRICING_REGION_DEFAULT,
 } from "../../common/index.js";
-import { InventoryAgent } from "../inventory/index.js";
+import { InventoryAgent, reserveItemsSaga } from "../inventory/index.js";
 import { PricingAgent } from "../pricing/index.js";
 import { ProductAgent } from "../product/index.js";
 import {
@@ -17,6 +17,7 @@ import {
   getOrderItemsTotalPrice,
   InitOrderError,
   Order,
+  OrderAgentState,
   OrderItem,
   OrderUpdated,
   RemoveItemError,
@@ -26,15 +27,14 @@ import {
   UpdateItemQuantityError,
 } from "./order-schema.js";
 
-interface OrderAgentState {
-  readonly orderId: string;
-  readonly order: Order | null;
-}
-
 export const OrderAgent = defineAgent({
   name: "OrderAgent",
   mode: "durable",
   id: { id: Schema.String },
+  snapshotting: Snapshot.define({
+    schema: OrderAgentState,
+    policy: Snapshot.policy.everyN(10),
+  }),
   http: Http.mount("/v1/order/{id}"),
   methods: {
     create: method({
@@ -133,12 +133,13 @@ export const OrderAgent = defineAgent({
         "Call this when the user asks for details, status, tracking, or items in a specific order.",
     }),
   },
-}).implement({
+}).implement<Ref.Ref<OrderAgentState>>({
   init: ({ id }) =>
     Ref.make<OrderAgentState>({
       orderId: id,
       order: null,
     }),
+  snapshot: Snapshot.ref<OrderAgentState>(),
   methods: (state) => {
     const getOrCreateOrder = Effect.gen(function* () {
       const { orderId, order } = yield* Ref.get(state);
@@ -175,48 +176,12 @@ export const OrderAgent = defineAgent({
             }
 
             const region = INVENTORY_REGION_DEFAULT;
-            const reservedProductIds: string[] = [];
-
-            for (const item of order.items) {
-              const invClient = yield* InventoryAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              yield* invClient
-                .reserveQuantity({
-                  orderId: current.orderId,
-                  region,
-                  quantity: item.quantity,
-                  expiresAt: undefined,
-                })
-                .pipe(
-                  Effect.catchTag("inventory-not-found", (err) =>
-                    Effect.fail({
-                      _tag: "insufficient-inventory" as const,
-                      message: err.message,
-                      productId: item.productId,
-                      region,
-                      requested: item.quantity,
-                      available: 0,
-                    }),
-                  ),
-                  orDieRpc,
-                  Effect.tapError(() =>
-                    Effect.forEach(
-                      reservedProductIds,
-                      (pid) =>
-                        InventoryAgent.client.get({ id: pid }).pipe(
-                          Effect.orDie,
-                          Effect.andThen((client) =>
-                            client.releaseReservation.trigger({ orderId: current.orderId }),
-                          ),
-                          Effect.ignore,
-                        ),
-                      { concurrency: "unbounded" },
-                    ),
-                  ),
-                );
-              reservedProductIds.push(item.productId);
-            }
+            yield* reserveItemsSaga({
+              orderId: current.orderId,
+              region,
+              items: order.items,
+              expiresAt: undefined,
+            });
 
             const date = yield* getCurrentDatetime;
             const updated: Order = {
@@ -547,14 +512,19 @@ export const OrderAgent = defineAgent({
               });
             }
 
-            for (const item of current.items) {
-              const invClient = yield* InventoryAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              yield* invClient.releaseReservation
-                .trigger({ orderId: current.orderId })
-                .pipe(Effect.ignore);
-            }
+            yield* Effect.forEach(
+              current.items,
+              (item) =>
+                Effect.gen(function* () {
+                  const invClient = yield* InventoryAgent.client
+                    .get({ id: item.productId })
+                    .pipe(Effect.orDie);
+                  yield* invClient.releaseReservation
+                    .trigger({ orderId: current.orderId })
+                    .pipe(Effect.ignore);
+                }),
+              { concurrency: "unbounded" },
+            );
 
             const date = yield* getCurrentDatetime;
             const updated: Order = {
@@ -579,14 +549,19 @@ export const OrderAgent = defineAgent({
               });
             }
 
-            for (const item of current.items) {
-              const invClient = yield* InventoryAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              yield* invClient.fulfillReservation
-                .trigger({ orderId: current.orderId })
-                .pipe(Effect.ignore);
-            }
+            yield* Effect.forEach(
+              current.items,
+              (item) =>
+                Effect.gen(function* () {
+                  const invClient = yield* InventoryAgent.client
+                    .get({ id: item.productId })
+                    .pipe(Effect.orDie);
+                  yield* invClient.fulfillReservation
+                    .trigger({ orderId: current.orderId })
+                    .pipe(Effect.ignore);
+                }),
+              { concurrency: "unbounded" },
+            );
 
             const date = yield* getCurrentDatetime;
             const updated: Order = {

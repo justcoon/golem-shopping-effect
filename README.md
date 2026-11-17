@@ -39,7 +39,7 @@ The application defines strongly typed Golem platform tools (`Tool.toolDefinitio
 - **Structured WASI Logging**: Logs tool invocation lifecycle events (`[ShoppingAssistant]` and `[ManagerAgent]`) through Effect WASI logging.
 
 ### Key Features
-- **Two-Phase Checkout & Reservation**: Time-bounded inventory reservations (10-minute hold window) during checkout preparation, preventing race conditions and cart modifications until confirmation or cancellation.
+- **Two-Phase Checkout & Saga Inventory Reservations**: Manages inventory holds and orders across agents using `@golemcloud/effect-golem` Sagas (`Saga.fallibleTransaction`). `prepareCheckout` locks items with a 10-minute hold—automatically releasing prior reservations in reverse order (LIFO) if any item fails midway. `confirmCheckout` places the order, deferring physical stock deduction until `shipOrder` so pre-shipment cancellations (`cancelOrder`) cleanly restore inventory.
 - **Model Context Protocol (MCP) Integration**: Built-in Streamable HTTP MCP server on port `9007` exposing isolated, role-segregated endpoints for customer shopping (`shop-mcp`) and operations management (`manager-mcp`).
 - **First-Class Tools & Direct In-Process Execution**: Assistants mount tools declaratively using `golemToolToPiAgentTools`, with seamless support for both ambient client RPC and direct in-process execution.
 - **RESTful HTTP API**: All agents expose HTTP endpoints declared in `golem.yaml` and mapped directly to agent methods.

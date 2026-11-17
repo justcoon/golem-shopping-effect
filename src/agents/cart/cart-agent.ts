@@ -1,32 +1,34 @@
 import { DateTime, Duration, Effect, Ref } from "effect";
+import { Snapshot } from "@golemcloud/effect-golem";
 import {
   arrayChunks,
   CHECKOUT_RESERVATION_TTL_SECONDS,
   CURRENCY,
   getCurrentDatetime,
   INVENTORY_REGION_DEFAULT,
-  orDieRpc,
   PRICING_REGION_DEFAULT,
 } from "../../common/index.js";
-import { InventoryAgent } from "../inventory/index.js";
+import { InventoryAgent, reserveItemsSaga } from "../inventory/index.js";
 import { Order, OrderAgent } from "../order/index.js";
 import { PricingAgent } from "../pricing/index.js";
 import { ProductAgent } from "../product/index.js";
 import { ShoppingRecommendationDefinition } from "../shopping-recommendation/shopping-recommendation-definition.js";
 import { CartAgentDefinition } from "./cart-definition.js";
-import { Cart, CartItem, CheckoutDraft, getCartItemsTotalPrice } from "./cart-schema.js";
+import {
+  Cart,
+  CartAgentState,
+  CartItem,
+  CheckoutDraft,
+  getCartItemsTotalPrice,
+} from "./cart-schema.js";
 
-interface CartAgentState {
-  readonly userId: string;
-  readonly cart: Cart | null;
-}
-
-export const CartAgent = CartAgentDefinition.implement({
+export const CartAgent = CartAgentDefinition.implement<Ref.Ref<CartAgentState>>({
   init: ({ id }) =>
     Ref.make<CartAgentState>({
       userId: id,
       cart: null,
     }),
+  snapshot: Snapshot.ref<CartAgentState>(),
   methods: (state) => {
     const getOrCreateCart = Effect.gen(function* () {
       const { userId, cart } = yield* Ref.get(state);
@@ -346,58 +348,23 @@ export const CartAgent = CartAgentDefinition.implement({
             );
 
             const region = INVENTORY_REGION_DEFAULT;
-            const reservedProductIds: string[] = [];
-
-            for (const item of current.items) {
-              const invClient = yield* InventoryAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              yield* invClient
-                .reserveQuantity({
-                  orderId,
-                  region,
-                  quantity: item.quantity,
-                  expiresAt,
-                })
-                .pipe(
-                  Effect.catchTag("inventory-not-found", (err) =>
-                    Effect.fail({
-                      _tag: "insufficient-stock" as const,
-                      message: err.message,
-                      productId: item.productId,
-                      region,
-                      requested: item.quantity,
-                      available: 0,
-                    }),
-                  ),
-                  Effect.catchTag("insufficient-inventory", (err) =>
-                    Effect.fail({
-                      _tag: "insufficient-stock" as const,
-                      message: err.message,
-                      productId: err.productId,
-                      region: err.region,
-                      requested: err.requested,
-                      available: err.available,
-                    }),
-                  ),
-                  orDieRpc,
-                  Effect.tapError(() =>
-                    Effect.forEach(
-                      reservedProductIds,
-                      (pid) =>
-                        InventoryAgent.client.get({ id: pid }).pipe(
-                          Effect.orDie,
-                          Effect.andThen((client) =>
-                            client.releaseReservation.trigger({ orderId }),
-                          ),
-                          Effect.ignore,
-                        ),
-                      { concurrency: "unbounded" },
-                    ),
-                  ),
-                );
-              reservedProductIds.push(item.productId);
-            }
+            yield* reserveItemsSaga({
+              orderId,
+              region,
+              items: current.items,
+              expiresAt,
+            }).pipe(
+              Effect.catchTag("insufficient-inventory", (err) =>
+                Effect.fail({
+                  _tag: "insufficient-stock" as const,
+                  message: err.message,
+                  productId: err.productId,
+                  region: err.region,
+                  requested: err.requested,
+                  available: err.available,
+                }),
+              ),
+            );
 
             const draft: CheckoutDraft = {
               orderId,
@@ -480,13 +447,6 @@ export const CartAgent = CartAgentDefinition.implement({
                 ),
               );
 
-            for (const item of current.items) {
-              const invClient = yield* InventoryAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              yield* invClient.fulfillReservation.trigger({ orderId }).pipe(Effect.ignore);
-            }
-
             const updatedCart: Cart = {
               ...current,
               items: [],
@@ -516,12 +476,17 @@ export const CartAgent = CartAgentDefinition.implement({
           Effect.gen(function* () {
             const { cart } = yield* Ref.get(state);
             if (cart && cart.draft && cart.draft.orderId === orderId) {
-              for (const item of cart.items) {
-                const invClient = yield* InventoryAgent.client
-                  .get({ id: item.productId })
-                  .pipe(Effect.orDie);
-                yield* invClient.releaseReservation.trigger({ orderId }).pipe(Effect.ignore);
-              }
+              yield* Effect.forEach(
+                cart.items,
+                (item) =>
+                  Effect.gen(function* () {
+                    const invClient = yield* InventoryAgent.client
+                      .get({ id: item.productId })
+                      .pipe(Effect.orDie);
+                    yield* invClient.releaseReservation.trigger({ orderId }).pipe(Effect.ignore);
+                  }),
+                { concurrency: "unbounded" },
+              );
               const now = yield* getCurrentDatetime;
               yield* Ref.update(state, (curr) => ({
                 ...curr,
@@ -575,34 +540,38 @@ export const CartAgent = CartAgentDefinition.implement({
               return activeCart;
             }
 
-            const refreshedItems: CartItem[] = [];
+            const refreshedItems = (yield* Effect.forEach(
+              activeCart.items,
+              (item) =>
+                Effect.gen(function* () {
+                  const productClient = yield* ProductAgent.client
+                    .get({ id: item.productId })
+                    .pipe(Effect.orDie);
+                  const product = yield* productClient.get({}).pipe(Effect.orDie);
 
-            for (const item of activeCart.items) {
-              const productClient = yield* ProductAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              const product = yield* productClient.get({}).pipe(Effect.orDie);
+                  const pricingClient = yield* PricingAgent.client
+                    .get({ id: item.productId })
+                    .pipe(Effect.orDie);
+                  const pricing = yield* pricingClient
+                    .getPrice({
+                      currency: activeCart.currency,
+                      region: PRICING_REGION_DEFAULT,
+                    })
+                    .pipe(Effect.orDie);
 
-              const pricingClient = yield* PricingAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              const pricing = yield* pricingClient
-                .getPrice({
-                  currency: activeCart.currency,
-                  region: PRICING_REGION_DEFAULT,
-                })
-                .pipe(Effect.orDie);
-
-              if (product && pricing) {
-                refreshedItems.push({
-                  productId: item.productId,
-                  productName: product.name,
-                  productBrand: product.brand,
-                  price: pricing.price,
-                  quantity: item.quantity,
-                });
-              }
-            }
+                  if (product && pricing) {
+                    return {
+                      productId: item.productId,
+                      productName: product.name,
+                      productBrand: product.brand,
+                      price: pricing.price,
+                      quantity: item.quantity,
+                    } satisfies CartItem;
+                  }
+                  return null;
+                }),
+              { concurrency: "unbounded" },
+            )).filter((item): item is CartItem => item !== null);
 
             const updatedCart: Cart = {
               ...activeCart,

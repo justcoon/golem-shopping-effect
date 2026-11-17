@@ -11,3 +11,9 @@ export const Product = Schema.Struct({
 });
 
 export type Product = typeof Product.Type;
+
+export const ProductAgentState = Schema.Struct({
+  productId: Schema.String,
+  product: Schema.NullOr(Product),
+});
+export type ProductAgentState = typeof ProductAgentState.Type;

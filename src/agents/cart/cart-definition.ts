@@ -1,9 +1,10 @@
 import { Schema } from "effect";
-import { defineAgent, Http, method } from "@golemcloud/effect-golem";
+import { defineAgent, Http, method, Snapshot } from "@golemcloud/effect-golem";
 import { Order } from "../order/order-schema.js";
 import {
   AddItemError,
   Cart,
+  CartAgentState,
   CartUpdated,
   ConfirmCheckoutError,
   OrderConfirmation,
@@ -19,11 +20,15 @@ export const CartAgentDefinition = defineAgent({
   name: "CartAgent",
   mode: "durable",
   id: { id: Schema.String },
+  snapshotting: Snapshot.define({
+    schema: CartAgentState,
+    policy: Snapshot.policy.everyN(10),
+  }),
   http: Http.mount("/v1/cart/{id}"),
   methods: {
     addItem: method({
       input: {
-        productId: Schema.String.annotate({ description: "Product ID to add, e.g. 'ap001'" }),
+        productId: Schema.String.annotate({ description: "Product ID from catalog search" }),
         quantity: Schema.Number.annotate({
           description: "Quantity to add (positive integer, defaults to 1)",
         }),

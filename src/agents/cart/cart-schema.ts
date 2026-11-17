@@ -185,3 +185,9 @@ export type SavedContactInfo = typeof SavedContactInfo.Type;
 
 export const getCartItemsTotalPrice = (items: readonly CartItem[]): number =>
   items.reduce((total, item) => total + item.price * item.quantity, 0);
+
+export const CartAgentState = Schema.Struct({
+  userId: Schema.String,
+  cart: Schema.NullOr(Cart),
+});
+export type CartAgentState = typeof CartAgentState.Type;

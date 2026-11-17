@@ -54,7 +54,7 @@ export const catalogToolDefinition = Tool.toolDefinition("catalog-tools", {
     cmd.body((b) =>
       b
         .option("product-id", Schema.String, {
-          doc: "Unique product identifier, e.g. 'ap001'",
+          doc: "Unique product identifier from catalog search",
           required: true,
         })
         .option("currency", Schema.String, {

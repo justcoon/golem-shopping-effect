@@ -1,8 +1,18 @@
-import { Cause, Effect, Queue, Stream } from "effect";
+import { Cause, Effect, Queue, Redacted, Ref, Scope, Stream } from "effect";
 import { Agent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
+import type { JsonObject, JsonValue, ToolCall } from "@earendil-works/pi-ai";
 import type { TSchema } from "@sinclair/typebox";
 import { extractLlmErrorMessage, fixMojibake } from "./error-formatter.js";
-import { ChatChunk, ChatMessage, ChatMessageType, ToolCallRecord } from "./ai-schema.js";
+import {
+  ChatChunk,
+  ChatMessage,
+  ChatMessageType,
+  ChatResponse,
+  LlmConfig,
+  ResolvedLlmConfig,
+  ToolCallRecord,
+} from "./ai-schema.js";
+import { getCurrentDatetimeIso } from "../common/index.js";
 import { setupModelsAndProvider } from "./models-provider.js";
 
 export interface ChatTurnResult {
@@ -45,6 +55,131 @@ export interface ExecuteAgentChatTurnOptions {
 
 export interface ExecuteAgentChatTurnStreamOptions extends ExecuteAgentChatTurnOptions {
   readonly onTurnComplete?: (result: ChatTurnResult) => Effect.Effect<void>;
+}
+
+function parseToolArguments(raw: string): JsonObject {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as JsonObject;
+    }
+    return { value: parsed as JsonValue };
+  } catch {
+    return { raw };
+  }
+}
+
+export function buildInitialAgentMessages(
+  history: readonly ChatMessage[],
+  resolvedModel: { api: string; provider: string; id: string },
+): AgentMessage[] {
+  const initialMessages: AgentMessage[] = [];
+
+  for (const h of history) {
+    if (h.role === "user") {
+      initialMessages.push({
+        role: "user",
+        content: [{ type: "text", text: h.content }],
+        timestamp: Date.now(),
+      });
+    } else if (h.role === "system") {
+      initialMessages.push({
+        role: "system",
+        content: [{ type: "text", text: h.content }],
+        timestamp: Date.now(),
+      });
+    } else if (h.role === "tool") {
+      initialMessages.push({
+        role: "toolResult",
+        toolCallId: (h.toolCalls && h.toolCalls[0]?.id) ?? "tool-call-1",
+        toolName: (h.toolCalls && h.toolCalls[0]?.toolName) ?? "tool",
+        content: [{ type: "text", text: h.content }],
+        isError: false,
+        timestamp: Date.now(),
+      });
+    } else if (h.role === "assistant") {
+      const toolCalls = h.toolCalls ?? [];
+      if (toolCalls.length > 0) {
+        // 1. Assistant message containing the tool calls
+        initialMessages.push({
+          role: "assistant",
+          content: toolCalls.map((tc): ToolCall => ({
+            type: "toolCall",
+            id: tc.id,
+            name: tc.toolName,
+            arguments: parseToolArguments(tc.arguments),
+          })),
+          api: resolvedModel.api,
+          provider: resolvedModel.provider,
+          model: resolvedModel.id,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "toolUse",
+          timestamp: Date.now(),
+        });
+
+        // 2. Corresponding tool result messages for each tool call
+        for (const tc of toolCalls) {
+          initialMessages.push({
+            role: "toolResult",
+            toolCallId: tc.id,
+            toolName: tc.toolName,
+            content: [{ type: "text", text: tc.result ?? "" }],
+            isError: false,
+            timestamp: Date.now(),
+          });
+        }
+
+        // 3. Final text response from the assistant if present
+        if (h.content && h.content.trim().length > 0) {
+          initialMessages.push({
+            role: "assistant",
+            content: [{ type: "text", text: h.content }],
+            api: resolvedModel.api,
+            provider: resolvedModel.provider,
+            model: resolvedModel.id,
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+            stopReason: "stop",
+            timestamp: Date.now(),
+          });
+        }
+      } else {
+        initialMessages.push({
+          role: "assistant",
+          content: [{ type: "text", text: h.content }],
+          api: resolvedModel.api,
+          provider: resolvedModel.provider,
+          model: resolvedModel.id,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "stop",
+          timestamp: Date.now(),
+        });
+      }
+    }
+  }
+
+  return initialMessages;
 }
 
 export function executeAgentChatTurnStream(
@@ -90,35 +225,8 @@ export function executeAgentChatTurnStream(
 
           const { models, resolvedModel } = setupModelsAndProvider({ apiKey, model, apiUrl });
 
-          // Convert prior history to Pi AgentMessage[] format
-          const initialMessages: AgentMessage[] = [];
-          for (const h of history) {
-            if (h.role === "user") {
-              initialMessages.push({
-                role: "user",
-                content: [{ type: "text", text: h.content }],
-                timestamp: Date.now(),
-              });
-            } else if (h.role === "assistant") {
-              initialMessages.push({
-                role: "assistant",
-                content: [{ type: "text", text: h.content }],
-                api: resolvedModel.api,
-                provider: resolvedModel.provider,
-                model: resolvedModel.id,
-                usage: {
-                  input: 0,
-                  output: 0,
-                  cacheRead: 0,
-                  cacheWrite: 0,
-                  totalTokens: 0,
-                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-                },
-                stopReason: "stop",
-                timestamp: Date.now(),
-              });
-            }
-          }
+          // Convert prior history to Pi AgentMessage[] format with full tool call and result reconstruction
+          const initialMessages = buildInitialAgentMessages(history, resolvedModel);
 
           const chunks: ChatChunk[] = [];
           const accumulatedToolCalls: ToolCallRecord[] = [];
@@ -283,4 +391,112 @@ export function executeAgentChatTurn(
 
     return result;
   });
+}
+
+export const resolveLlmConfig = (llm: LlmConfig): Effect.Effect<ResolvedLlmConfig> =>
+  Effect.gen(function* () {
+    const apiKey = Redacted.value(yield* llm.apiKey.get);
+    const model = Redacted.value(yield* llm.model.get);
+    const apiUrl = Redacted.value(yield* llm.apiUrl.get);
+    return { apiKey, model, apiUrl };
+  }).pipe(Effect.orDie);
+
+export interface ExecuteConversationalTurnOptions<
+  S extends { readonly messages: readonly ChatMessage[] },
+> {
+  readonly state: Ref.Ref<S>;
+  readonly userMessage: string;
+  readonly systemPrompt: string;
+  readonly tools: readonly AgentTool<TSchema>[];
+  readonly llm: LlmConfig;
+  readonly missingApiKeyMessage?: string;
+}
+
+export function executeConversationalTurn<S extends { readonly messages: readonly ChatMessage[] }>(
+  options: ExecuteConversationalTurnOptions<S>,
+): Effect.Effect<ChatResponse, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const { messages } = yield* Ref.get(options.state);
+    const { apiKey, model, apiUrl } = yield* resolveLlmConfig(options.llm);
+
+    const result = yield* executeAgentChatTurn({
+      systemPrompt: options.systemPrompt,
+      tools: options.tools,
+      apiKey,
+      model,
+      apiUrl,
+      history: messages,
+      userMessage: options.userMessage,
+      missingApiKeyMessage: options.missingApiKeyMessage,
+    });
+
+    const now = yield* getCurrentDatetimeIso;
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: options.userMessage,
+      timestamp: now,
+      type: "ok",
+    };
+    const assistantMsg: ChatMessage = {
+      role: "assistant",
+      content: result.reply,
+      toolCalls: result.toolCallsUsed.length > 0 ? [...result.toolCallsUsed] : undefined,
+      timestamp: now,
+      type: result.type,
+    };
+
+    yield* Ref.update(options.state, (prev) => ({
+      ...prev,
+      messages: [...prev.messages, userMsg, assistantMsg],
+    }));
+
+    return {
+      reply: result.reply,
+      toolCallsUsed: [...result.toolCallsUsed],
+      type: result.type,
+    };
+  }).pipe(Effect.orDie);
+}
+
+export function executeConversationalTurnStream<
+  S extends { readonly messages: readonly ChatMessage[] },
+>(options: ExecuteConversationalTurnOptions<S>): Stream.Stream<ChatChunk> {
+  return Stream.unwrap(
+    Effect.gen(function* () {
+      const { messages } = yield* Ref.get(options.state);
+      const { apiKey, model, apiUrl } = yield* resolveLlmConfig(options.llm);
+
+      return executeAgentChatTurnStream({
+        systemPrompt: options.systemPrompt,
+        tools: options.tools,
+        apiKey,
+        model,
+        apiUrl,
+        history: messages,
+        userMessage: options.userMessage,
+        missingApiKeyMessage: options.missingApiKeyMessage,
+        onTurnComplete: (result) =>
+          Effect.gen(function* () {
+            const now = yield* getCurrentDatetimeIso;
+            const userMsg: ChatMessage = {
+              role: "user",
+              content: options.userMessage,
+              timestamp: now,
+              type: "ok",
+            };
+            const assistantMsg: ChatMessage = {
+              role: "assistant",
+              content: result.reply,
+              toolCalls: result.toolCallsUsed.length > 0 ? [...result.toolCallsUsed] : undefined,
+              timestamp: now,
+              type: result.type,
+            };
+            yield* Ref.update(options.state, (prev) => ({
+              ...prev,
+              messages: [...prev.messages, userMsg, assistantMsg],
+            }));
+          }),
+      });
+    }).pipe(Effect.orDie),
+  );
 }

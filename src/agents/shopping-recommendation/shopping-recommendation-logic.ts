@@ -2,7 +2,7 @@ import { Duration, Effect } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import { Retry } from "@golemcloud/effect-golem";
 import { arrayChunks, getCurrentDatetime, safeJsonStringify } from "../../common/index.js";
-import { extractLlmErrorMessage } from "../../ai/index.js";
+import { extractLlmErrorMessage, LlmConfig, resolveLlmConfig } from "../../ai/index.js";
 import { CartAgentDefinition } from "../cart/cart-definition.js";
 import { OrderAgent, OrderItem } from "../order/index.js";
 import {
@@ -21,15 +21,14 @@ const llmRetryPolicy = Retry.NamedPolicy.named(
 
 export interface ExecuteRecommendItemsOptions {
   readonly userId: string;
-  readonly apiKey: string;
-  readonly model: string;
-  readonly apiUrl?: string;
+  readonly llm: LlmConfig;
   readonly previousRecommendedItems: RecommendedItems;
 }
 
 export function executeRecommendItems(options: ExecuteRecommendItemsOptions) {
   return Effect.gen(function* () {
-    const { userId, apiKey, model, apiUrl, previousRecommendedItems } = options;
+    const { userId, llm, previousRecommendedItems } = options;
+    const { apiKey, model, apiUrl } = yield* resolveLlmConfig(llm);
     yield* Effect.logInfo(`Recommend items for user: ${userId}`);
 
     const cartClient = yield* CartAgentDefinition.client.get({ id: userId }).pipe(Effect.orDie);

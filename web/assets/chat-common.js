@@ -253,3 +253,99 @@ export function renderMarkdown(md) {
   return text;
 }
 
+/**
+ * Normalizes raw Golem SSE event data into typed chat stream events.
+ * Handles array batches, WIT variant keying ({ tool_start: {...} }),
+ * kebab-case keys ({ "tool-start": {...} }), and Effect TaggedStruct ({ _tag: "tool_start", ... }).
+ *
+ * @param {string} rawData
+ * @returns {Array<{ tag: string, payload: any }>}
+ */
+export function parseStreamEvents(rawData) {
+  if (!rawData) return [];
+  try {
+    const parsed = JSON.parse(rawData);
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    /** @type {Array<{ tag: string, payload: any }>} */
+    const events = [];
+
+    for (const item of items) {
+      if (!item || typeof item !== "object") continue;
+
+      let tag = item._tag;
+      let payload = item;
+
+      if (!tag) {
+        const keys = Object.keys(item);
+        if (keys.length === 1) {
+          const key = keys[0];
+          tag = key.replace(/-/g, "_");
+          payload = item[key] || {};
+        }
+      }
+
+      if (tag) {
+        events.push({ tag, payload });
+      }
+    }
+
+    return events;
+  } catch (err) {
+    console.warn("Failed to parse stream event:", err);
+    return [];
+  }
+}
+
+/**
+ * Creates a running tool card element with a spinner.
+ * @param {{ id?: string, toolName?: string }} toolCall
+ * @returns {HTMLDivElement}
+ */
+export function createRunningToolCard(toolCall) {
+  const card = document.createElement("div");
+  card.className = "tool-card running";
+  card.innerHTML = `
+    <span class="tool-spinner"></span>
+    <span>Executing <strong>${escapeHtml(toolCall?.toolName || "tool")}</strong>...</span>
+  `;
+  return card;
+}
+
+/**
+ * Updates a running tool card element to completed or failed state.
+ * @param {HTMLElement} card
+ * @param {{ toolName?: string, result?: any }} toolCall
+ */
+export function updateCompletedToolCard(card, toolCall) {
+  let summary = "Completed";
+  try {
+    const resObj =
+      typeof toolCall.result === "string" ? JSON.parse(toolCall.result) : toolCall.result;
+    summary = resObj?.summary || (resObj?.error ? `Failed: ${resObj.error}` : "Done");
+  } catch {
+    summary = toolCall?.result ? String(toolCall.result) : "Done";
+  }
+  const isFailed = summary.toLowerCase().includes("failed");
+  card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
+  card.innerHTML = `
+    <span>${isFailed ? "⚠️" : "✅"}</span>
+    <span><strong>${escapeHtml(toolCall?.toolName || "tool")}:</strong> ${escapeHtml(summary)}</span>
+  `;
+}
+
+/**
+ * Creates a static completed tool card (for historical messages or sync fallback).
+ * @param {{ toolName?: string }} toolCall
+ * @returns {HTMLDivElement}
+ */
+export function createCompletedToolCard(toolCall) {
+  const card = document.createElement("div");
+  card.className = "tool-card completed";
+  card.innerHTML = `
+    <span>✅</span>
+    <span><strong>${escapeHtml(toolCall?.toolName || "tool")}</strong></span>
+  `;
+  return card;
+}
+
+

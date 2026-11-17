@@ -94,11 +94,11 @@ sequenceDiagram
 
 | Action     | File Path                                                                                                   | Description                                                                                             |
 | :--------- | :---------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------ |
-| `[MODIFY]` | [`src/ai/agent-loop.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/ai/agent-loop.ts)                                           | Refactor `executeAgentChatTurnStream` using `Queue` and `Effect.forkScoped`, adding `onTurnComplete`.  |
-| `[MODIFY]` | [`src/agents/shopping-assistant/shopping-assistant-loop.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-loop.ts) | Forward `onTurnComplete` and options to `executeAgentChatTurnStream`.                                   |
-| `[MODIFY]` | [`src/agents/shopping-assistant/shopping-assistant-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/shopping-assistant/shopping-assistant-agent.ts) | Update `chatStream` to return `executeChatTurnStream` with state update in `onTurnComplete`.            |
-| `[MODIFY]` | [`src/agents/manager/manager-agent.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/src/agents/manager/manager-agent.ts)                       | Update `chatStream` to use real-time streaming with state update in `onTurnComplete`.                   |
-| `[NEW]`    | [`test/ai/real-time-chat-stream.test.ts`](file:///Users/coon/workspace-zv/git/golem-shopping-effect/test/ai/real-time-chat-stream.test.ts)               | Unit tests asserting progressive event streaming, token delivery order, and turn completion callbacks.  |
+| `[MODIFY]` | [`src/ai/agent-loop.ts`](../../src/ai/agent-loop.ts)                                           | Refactor `executeAgentChatTurnStream` using `Queue` and `Effect.forkScoped`, adding `onTurnComplete`.  |
+| `[MODIFY]` | [`src/agents/shopping-assistant/shopping-assistant-loop.ts`](../../src/agents/shopping-assistant/shopping-assistant-loop.ts) | Forward `onTurnComplete` and options to `executeAgentChatTurnStream`.                                   |
+| `[MODIFY]` | [`src/agents/shopping-assistant/shopping-assistant-agent.ts`](../../src/agents/shopping-assistant/shopping-assistant-agent.ts) | Update `chatStream` to return `executeChatTurnStream` with state update in `onTurnComplete`.            |
+| `[MODIFY]` | [`src/agents/manager/manager-agent.ts`](../../src/agents/manager/manager-agent.ts)                       | Update `chatStream` to use real-time streaming with state update in `onTurnComplete`.                   |
+| `[NEW]`    | [`test/ai/real-time-chat-stream.test.ts`](../../test/ai/real-time-chat-stream.test.ts)               | Unit tests asserting progressive event streaming, token delivery order, and turn completion callbacks.  |
 
 ### Detailed Changes
 

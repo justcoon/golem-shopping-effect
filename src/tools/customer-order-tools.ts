@@ -16,13 +16,13 @@ export const customerOrderToolHandlers = {
     Effect.scoped(
       Effect.gen(function* () {
         const client = yield* getOrderSearchClient;
-        const orders = yield* client
+        const res = yield* client
           .getOrdersByUserId({
             userId: input["user-id"],
             limit: input.limit ?? undefined,
           })
           .pipe(Effect.orDie);
-        return orders;
+        return res.value;
       }),
     ),
   getOrderDetails: (input: { "order-id": string }) =>

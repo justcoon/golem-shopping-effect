@@ -29,7 +29,7 @@ export const managerOrderToolHandlers = {
             limit: input.limit ?? undefined,
           })
           .pipe(Effect.orDie);
-        return res;
+        return res.value;
       }),
     ),
   listRecentOrders: (input: { limit?: number | null }) =>
@@ -39,7 +39,7 @@ export const managerOrderToolHandlers = {
         const res = yield* client
           .getRecentOrders({ limit: input.limit ?? undefined })
           .pipe(Effect.orDie);
-        return res;
+        return res.value;
       }),
     ),
   getOrderDetails: (input: { "order-id": string }) =>

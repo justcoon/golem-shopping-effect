@@ -1,4 +1,4 @@
-import { DateTime, Effect, Schema } from "effect";
+import { Array, DateTime, Effect, Schema } from "effect";
 
 export const Address = Schema.Struct({
   street: Schema.String,
@@ -18,15 +18,14 @@ export const PRICING_REGION_DEFAULT = "global";
 export const INVENTORY_REGION_DEFAULT = "global";
 export const CHECKOUT_RESERVATION_TTL_SECONDS = 600;
 
-export function arrayChunks<T>(array: readonly T[], chunkSize: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < array.length; i += chunkSize) {
-    chunks.push(array.slice(i, i + chunkSize));
-  }
-  return chunks;
-}
+export const arrayChunks = <T>(array: readonly T[], chunkSize: number): T[][] =>
+  Array.chunksOf(array, chunkSize);
 
 export const getCurrentDatetime: Effect.Effect<DateTime.Utc> = DateTime.now;
+
+export const getCurrentDatetimeIso: Effect.Effect<string> = DateTime.now.pipe(
+  Effect.map(DateTime.formatIso),
+);
 
 /**
  * Safely stringifies objects containing BigInt values (e.g. Datetime.Datetime seconds)

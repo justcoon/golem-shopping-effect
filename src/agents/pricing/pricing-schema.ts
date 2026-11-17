@@ -29,6 +29,12 @@ export const Pricing = Schema.Struct({
 
 export type Pricing = typeof Pricing.Type;
 
+export const PricingAgentState = Schema.Struct({
+  productId: Schema.String,
+  pricing: Schema.NullOr(Pricing),
+});
+export type PricingAgentState = typeof PricingAgentState.Type;
+
 export const mergePricingItems = (
   first: readonly PricingItem[],
   second: readonly PricingItem[],

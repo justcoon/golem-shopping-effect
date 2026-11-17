@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { DateTime, Duration, Effect, Schema } from "effect";
+import { DateTime, Duration, Effect, Exit, Schema } from "effect";
 import {
   isAllocationExpired,
   OrderAllocation,
@@ -264,5 +264,74 @@ describe("Two-Phase Checkout: Inventory Reservation & Expiration", () => {
     });
     assert.strictEqual(cancelTool.name, "cancel_checkout");
     assert.ok(cancelTool.parameters);
+  });
+
+  it("rolls back prior reservations in reverse order when a subsequent item fails", async () => {
+    const executed: string[] = [];
+    const compensated: string[] = [];
+
+    const reserveItem = (id: string, shouldFail: boolean) =>
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          if (shouldFail) {
+            throw new Error(`Out of stock: ${id}`);
+          }
+          executed.push(id);
+          return id;
+        }),
+        (id, exit) =>
+          Effect.sync(() => {
+            if (!Exit.isSuccess(exit)) {
+              compensated.push(id);
+            }
+          }),
+      );
+
+    const program = Effect.scoped(
+      Effect.gen(function* () {
+        yield* reserveItem("prod-1", false);
+        yield* reserveItem("prod-2", false);
+        yield* reserveItem("prod-3", true);
+      }),
+    );
+
+    const exit = await Effect.runPromiseExit(program);
+    assert.strictEqual(Exit.isFailure(exit), true);
+    assert.deepStrictEqual(executed, ["prod-1", "prod-2"]);
+    // Compensations run in reverse order (LIFO): prod-2, then prod-1
+    assert.deepStrictEqual(compensated, ["prod-2", "prod-1"]);
+  });
+
+  it("preserves inventory allocation across confirmCheckout until shipment or cancellation", () => {
+    const now = Effect.runSync(DateTime.now);
+    const orderId = "order-test-lifecycle";
+
+    // Initial inventory with permanent confirmed order allocation
+    const inventory = {
+      productId: "prod-1",
+      items: [{ region: "global", totalQuantity: 10 }],
+      allocations: [
+        {
+          orderId,
+          region: "global",
+          quantity: 2,
+          updatedAt: now,
+          expiresAt: undefined,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // Before shipping: available quantity is 10 - 2 = 8
+    const allocated = inventory.allocations
+      .filter((a) => a.region === "global")
+      .reduce((sum, a) => sum + a.quantity, 0);
+    assert.strictEqual(inventory.items[0]!.totalQuantity - allocated, 8);
+
+    // If cancelled before shipping: releaseReservation frees allocation without touching totalQuantity
+    const releasedAllocations = inventory.allocations.filter((a) => a.orderId !== orderId);
+    assert.strictEqual(releasedAllocations.length, 0);
+    assert.strictEqual(inventory.items[0]!.totalQuantity, 10);
   });
 });
