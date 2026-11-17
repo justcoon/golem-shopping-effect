@@ -168,7 +168,6 @@ export const CartAgentDefinition = defineAgent({
     getSavedContactInfo: method({
       input: {},
       success: Schema.NullOr(SavedContactInfo),
-      readOnly: true,
       http: [Http.get("/saved-contact")],
       description:
         "Retrieves previously saved contact information and addresses from the user's past orders.",
@@ -192,7 +191,6 @@ export const CartAgentDefinition = defineAgent({
         }),
       },
       success: Schema.Array(Order),
-      readOnly: true,
       http: [Http.get("/orders?limit={limit}")],
       description: "Retrieves past orders placed by this customer.",
       promptHint:

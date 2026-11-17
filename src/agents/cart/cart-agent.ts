@@ -6,10 +6,9 @@ import {
   CURRENCY,
   getCurrentDatetime,
   INVENTORY_REGION_DEFAULT,
-  orDieRpc,
   PRICING_REGION_DEFAULT,
 } from "../../common/index.js";
-import { InventoryAgent } from "../inventory/index.js";
+import { InventoryAgent, reserveItemsSaga } from "../inventory/index.js";
 import { Order, OrderAgent } from "../order/index.js";
 import { PricingAgent } from "../pricing/index.js";
 import { ProductAgent } from "../product/index.js";
@@ -349,58 +348,23 @@ export const CartAgent = CartAgentDefinition.implement<Ref.Ref<CartAgentState>>(
             );
 
             const region = INVENTORY_REGION_DEFAULT;
-            const reservedProductIds: string[] = [];
-
-            for (const item of current.items) {
-              const invClient = yield* InventoryAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              yield* invClient
-                .reserveQuantity({
-                  orderId,
-                  region,
-                  quantity: item.quantity,
-                  expiresAt,
-                })
-                .pipe(
-                  Effect.catchTag("inventory-not-found", (err) =>
-                    Effect.fail({
-                      _tag: "insufficient-stock" as const,
-                      message: err.message,
-                      productId: item.productId,
-                      region,
-                      requested: item.quantity,
-                      available: 0,
-                    }),
-                  ),
-                  Effect.catchTag("insufficient-inventory", (err) =>
-                    Effect.fail({
-                      _tag: "insufficient-stock" as const,
-                      message: err.message,
-                      productId: err.productId,
-                      region: err.region,
-                      requested: err.requested,
-                      available: err.available,
-                    }),
-                  ),
-                  orDieRpc,
-                  Effect.tapError(() =>
-                    Effect.forEach(
-                      reservedProductIds,
-                      (pid) =>
-                        InventoryAgent.client.get({ id: pid }).pipe(
-                          Effect.orDie,
-                          Effect.andThen((client) =>
-                            client.releaseReservation.trigger({ orderId }),
-                          ),
-                          Effect.ignore,
-                        ),
-                      { concurrency: "unbounded" },
-                    ),
-                  ),
-                );
-              reservedProductIds.push(item.productId);
-            }
+            yield* reserveItemsSaga({
+              orderId,
+              region,
+              items: current.items,
+              expiresAt,
+            }).pipe(
+              Effect.catchTag("insufficient-inventory", (err) =>
+                Effect.fail({
+                  _tag: "insufficient-stock" as const,
+                  message: err.message,
+                  productId: err.productId,
+                  region: err.region,
+                  requested: err.requested,
+                  available: err.available,
+                }),
+              ),
+            );
 
             const draft: CheckoutDraft = {
               orderId,
@@ -482,18 +446,6 @@ export const CartAgent = CartAgentDefinition.implement<Ref.Ref<CartAgentState>>(
                   }),
                 ),
               );
-
-            yield* Effect.forEach(
-              current.items,
-              (item) =>
-                Effect.gen(function* () {
-                  const invClient = yield* InventoryAgent.client
-                    .get({ id: item.productId })
-                    .pipe(Effect.orDie);
-                  yield* invClient.fulfillReservation.trigger({ orderId }).pipe(Effect.ignore);
-                }),
-              { concurrency: "unbounded" },
-            );
 
             const updatedCart: Cart = {
               ...current,

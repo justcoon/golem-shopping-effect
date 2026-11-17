@@ -7,7 +7,7 @@ import {
   orDieRpc,
   PRICING_REGION_DEFAULT,
 } from "../../common/index.js";
-import { InventoryAgent } from "../inventory/index.js";
+import { InventoryAgent, reserveItemsSaga } from "../inventory/index.js";
 import { PricingAgent } from "../pricing/index.js";
 import { ProductAgent } from "../product/index.js";
 import {
@@ -176,48 +176,12 @@ export const OrderAgent = defineAgent({
             }
 
             const region = INVENTORY_REGION_DEFAULT;
-            const reservedProductIds: string[] = [];
-
-            for (const item of order.items) {
-              const invClient = yield* InventoryAgent.client
-                .get({ id: item.productId })
-                .pipe(Effect.orDie);
-              yield* invClient
-                .reserveQuantity({
-                  orderId: current.orderId,
-                  region,
-                  quantity: item.quantity,
-                  expiresAt: undefined,
-                })
-                .pipe(
-                  Effect.catchTag("inventory-not-found", (err) =>
-                    Effect.fail({
-                      _tag: "insufficient-inventory" as const,
-                      message: err.message,
-                      productId: item.productId,
-                      region,
-                      requested: item.quantity,
-                      available: 0,
-                    }),
-                  ),
-                  orDieRpc,
-                  Effect.tapError(() =>
-                    Effect.forEach(
-                      reservedProductIds,
-                      (pid) =>
-                        InventoryAgent.client.get({ id: pid }).pipe(
-                          Effect.orDie,
-                          Effect.andThen((client) =>
-                            client.releaseReservation.trigger({ orderId: current.orderId }),
-                          ),
-                          Effect.ignore,
-                        ),
-                      { concurrency: "unbounded" },
-                    ),
-                  ),
-                );
-              reservedProductIds.push(item.productId);
-            }
+            yield* reserveItemsSaga({
+              orderId: current.orderId,
+              region,
+              items: order.items,
+              expiresAt: undefined,
+            });
 
             const date = yield* getCurrentDatetime;
             const updated: Order = {

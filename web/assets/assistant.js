@@ -1,6 +1,15 @@
 // @ts-check
 
-import { cleanMojibake, escapeHtml, formatTime, renderMarkdown } from "./chat-common.js";
+import {
+  cleanMojibake,
+  createCompletedToolCard,
+  createRunningToolCard,
+  escapeHtml,
+  formatTime,
+  parseStreamEvents,
+  renderMarkdown,
+  updateCompletedToolCard,
+} from "./chat-common.js";
 
 /**
  * Golem Shopping Assistant Web Client
@@ -278,60 +287,56 @@ async function sendMessage(message) {
       const es = new EventSource(slotUrl);
       currentEventSource = es;
 
-      es.onmessage = (event) => {
-        try {
-          if (!event.data) return;
-          const chunk = JSON.parse(event.data);
-
-          if (chunk._tag === "text_delta") {
+      const handleData = (event) => {
+        const events = parseStreamEvents(event.data);
+        for (const { tag, payload } of events) {
+          if (tag === "text_delta") {
             receivedAnyText = true;
-            bubble.appendText(chunk.delta || chunk.content || "");
-          } else if (chunk._tag === "tool_start") {
-            const tc = chunk.toolCall;
+            bubble.appendText(payload.delta || payload.content || "");
+          } else if (tag === "tool_start") {
+            const tc = payload.toolCall;
             if (tc) {
-              const card = document.createElement("div");
-              card.className = "tool-card running";
-              card.innerHTML = `
-                <span class="tool-spinner"></span>
-                <span>Executing <strong>${escapeHtml(tc.toolName || "tool")}</strong>...</span>
-              `;
+              const card = createRunningToolCard(tc);
               bubble.toolCardsContainer.appendChild(card);
               bubble.toolCards.set(tc.id, card);
               bubble.updateToolCount();
               scrollToBottom();
             }
-          } else if (chunk._tag === "tool_result") {
-            const tc = chunk.toolCall;
+          } else if (tag === "tool_result") {
+            const tc = payload.toolCall;
             if (tc && bubble.toolCards.has(tc.id)) {
               const card = bubble.toolCards.get(tc.id);
-              let summary = "Completed";
-              try {
-                const resObj = typeof tc.result === "string" ? JSON.parse(tc.result) : tc.result;
-                summary = resObj.summary || (resObj.error ? `Failed: ${resObj.error}` : "Done");
-              } catch {
-                summary = String(tc.result);
-              }
-              const isFailed = summary.toLowerCase().includes("failed");
-              card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
-              card.innerHTML = `
-                <span>${isFailed ? "⚠️" : "✅"}</span>
-                <span><strong>${escapeHtml(tc.toolName || "tool")}:</strong> ${escapeHtml(summary)}</span>
-              `;
+              updateCompletedToolCard(card, tc);
               scrollToBottom();
             }
-          } else if (chunk._tag === "done") {
+          } else if (tag === "done") {
             es.close();
             currentEventSource = null;
             resolve(undefined);
-          } else if (chunk._tag === "error") {
+          } else if (tag === "error") {
             es.close();
             currentEventSource = null;
-            reject(new Error(chunk.error || "Stream returned error"));
+            reject(new Error(payload.error || payload.content || "Stream returned error"));
           }
-        } catch (parseErr) {
-          console.warn("Error parsing stream chunk:", parseErr);
         }
       };
+
+      // Golem Durable Streams sends named 'data' events and 'control' events
+      es.addEventListener("data", handleData);
+      es.addEventListener("message", handleData);
+
+      es.addEventListener("control", (event) => {
+        try {
+          const ctrl = JSON.parse(event.data);
+          if (ctrl?.streamClosed) {
+            es.close();
+            currentEventSource = null;
+            resolve(undefined);
+          }
+        } catch {
+          // Ignore control parse errors
+        }
+      });
 
       es.onerror = (err) => {
         es.close();
@@ -365,13 +370,7 @@ async function sendMessage(message) {
       // Render tool calls if present
       if (Array.isArray(syncData.toolCalls)) {
         for (const tc of syncData.toolCalls) {
-          const card = document.createElement("div");
-          card.className = "tool-card completed";
-          card.innerHTML = `
-            <span>✅</span>
-            <span><strong>${escapeHtml(tc.toolName)}</strong></span>
-          `;
-          bubble.toolCardsContainer.appendChild(card);
+          bubble.toolCardsContainer.appendChild(createCompletedToolCard(tc));
         }
         bubble.updateToolCount();
       }
@@ -424,13 +423,7 @@ async function loadHistory() {
 
         if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
           for (const tc of msg.toolCalls) {
-            const card = document.createElement("div");
-            card.className = "tool-card completed";
-            card.innerHTML = `
-              <span>✅</span>
-              <span><strong>${escapeHtml(tc.toolName)}</strong></span>
-            `;
-            bubble.toolCardsContainer.appendChild(card);
+            bubble.toolCardsContainer.appendChild(createCompletedToolCard(tc));
           }
           bubble.updateToolCount();
           // Collapse historical tools by default to keep chat clean
