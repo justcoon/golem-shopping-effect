@@ -2,7 +2,7 @@ import { Cause, Effect, Queue, Redacted, Ref, Scope, Stream } from "effect";
 import { Agent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
 import type { JsonObject, JsonValue, ToolCall } from "@earendil-works/pi-ai";
 import type { TSchema } from "@sinclair/typebox";
-import { extractLlmErrorMessage, fixMojibake } from "./error-formatter.js";
+import { fixMojibake, mapLlmErrorToUserMessage } from "./error-formatter.js";
 import {
   ChatChunk,
   ChatMessage,
@@ -204,18 +204,13 @@ export function executeAgentChatTurnStream(
           } = options;
 
           if (!apiKey) {
-            Queue.offerUnsafe(queue, textDeltaChunk(missingApiKeyMessage));
             Queue.offerUnsafe(queue, errorChunk(missingApiKeyMessage));
             Queue.offerUnsafe(queue, doneChunk(""));
             if (onTurnComplete) {
               yield* onTurnComplete({
                 reply: missingApiKeyMessage,
                 toolCallsUsed: [],
-                chunks: [
-                  textDeltaChunk(missingApiKeyMessage),
-                  errorChunk(missingApiKeyMessage),
-                  doneChunk(""),
-                ],
+                chunks: [errorChunk(missingApiKeyMessage), doneChunk("")],
                 type: "error" as ChatMessageType,
               }).pipe(Effect.ignore);
             }
@@ -309,12 +304,8 @@ export function executeAgentChatTurnStream(
           let finalReply = "";
           if (isError) {
             const raw = errorMessage || "AI service request failed";
-            const cleaned = extractLlmErrorMessage(400, raw);
-            finalReply =
-              cleaned && !cleaned.startsWith("HTTP 400")
-                ? `AI service error: ${cleaned}`
-                : `AI service error: ${raw}`;
-            emitChunk(textDeltaChunk(finalReply));
+            yield* Effect.logError(`AI upstream error: ${raw}`);
+            finalReply = mapLlmErrorToUserMessage(raw);
             emitChunk(errorChunk(finalReply));
           } else {
             const lastMsg = agent.state.messages[agent.state.messages.length - 1];

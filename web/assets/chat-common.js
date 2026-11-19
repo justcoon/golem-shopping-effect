@@ -71,7 +71,7 @@ export function renderMarkdown(md) {
   /** @type {string[]} */
   const codeBlocks = [];
   let text = md.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, _lang, code) => {
-    const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+    const placeholder = `@@CODEBLOCK${codeBlocks.length}@@`;
     codeBlocks.push(`<pre class="md-code-block"><code>${escapeHtml(code.trim())}</code></pre>`);
     return `\n\n${placeholder}\n\n`;
   });
@@ -80,7 +80,7 @@ export function renderMarkdown(md) {
   /** @type {string[]} */
   const inlineCodes = [];
   text = text.replace(/`([^`]+)`/g, (_, code) => {
-    const placeholder = `__INLINE_CODE_${inlineCodes.length}__`;
+    const placeholder = `@@INLINECODE${inlineCodes.length}@@`;
     inlineCodes.push(`<code class="md-inline-code">${escapeHtml(code)}</code>`);
     return placeholder;
   });
@@ -134,6 +134,9 @@ export function renderMarkdown(md) {
       const popped = listStack.pop();
       if (popped) {
         processed.push(`</${popped.type}>`);
+        if (listStack.length === 0) {
+          processed.push("");
+        }
       }
     }
   }
@@ -161,28 +164,45 @@ export function renderMarkdown(md) {
     } else if (ulMatch || olMatch) {
       if (inBq) {
         processed.push("</blockquote>");
+        processed.push("");
         inBq = false;
       }
-      const rawIndent = (ulMatch || olMatch)[1];
-      const indent = rawIndent.replace(/\t/g, "  ").length;
+
+      const indent = (ulMatch ? ulMatch[1] : olMatch[1]).length;
+      const content = ulMatch ? ulMatch[2] : olMatch[2];
       const type = ulMatch ? "ul" : "ol";
-      const content = (ulMatch || olMatch)[2];
 
       if (listStack.length === 0) {
-        processed.push("");
+        if (processed.length > 0 && processed[processed.length - 1] !== "") {
+          processed.push("");
+        }
         processed.push(`<${type} class="md-${type}">`);
         processed.push(`  <li class="md-li">${content}`);
         listStack.push({ type, indent, hasOpenLi: true });
       } else {
-        const top = listStack[listStack.length - 1];
-        if (indent > top.indent) {
+        const currentTop = listStack[listStack.length - 1];
+        if (indent > currentTop.indent) {
+          // Open nested list
           processed.push(`<${type} class="md-${type}">`);
           processed.push(`  <li class="md-li">${content}`);
           listStack.push({ type, indent, hasOpenLi: true });
+        } else if (indent === currentTop.indent) {
+          if (currentTop.type === type) {
+            closeTopLi();
+            processed.push(`  <li class="md-li">${content}`);
+            currentTop.hasOpenLi = true;
+          } else {
+            closeList();
+            processed.push(`<${type} class="md-${type}">`);
+            processed.push(`  <li class="md-li">${content}`);
+            listStack.push({ type, indent, hasOpenLi: true });
+          }
         } else {
-          while (listStack.length > 0 && indent < listStack[listStack.length - 1].indent) {
+          // Unwind to matching or lower indent
+          while (listStack.length > 0 && listStack[listStack.length - 1].indent > indent) {
             closeList();
           }
+
           if (listStack.length === 0) {
             processed.push(`<${type} class="md-${type}">`);
             processed.push(`  <li class="md-li">${content}`);
@@ -237,7 +257,7 @@ export function renderMarkdown(md) {
         block.startsWith("<h2") ||
         block.startsWith("<h3") ||
         block.startsWith("<pre") ||
-        block.startsWith("__CODE_BLOCK")
+        block.startsWith("@@CODEBLOCK")
       ) {
         return block;
       }
@@ -247,8 +267,8 @@ export function renderMarkdown(md) {
     .join("\n");
 
   // 9. Restore code blocks & inline code
-  text = text.replace(/__INLINE_CODE_(\d+)__/g, (_, idx) => inlineCodes[Number(idx)]);
-  text = text.replace(/__CODE_BLOCK_(\d+)__/g, (_, idx) => codeBlocks[Number(idx)]);
+  text = text.replace(/@@INLINECODE(\d+)@@/g, (_, idx) => inlineCodes[Number(idx)]);
+  text = text.replace(/@@CODEBLOCK(\d+)@@/g, (_, idx) => codeBlocks[Number(idx)]);
 
   return text;
 }
@@ -256,7 +276,8 @@ export function renderMarkdown(md) {
 /**
  * Normalizes raw Golem SSE event data into typed chat stream events.
  * Handles array batches, WIT variant keying ({ tool_start: {...} }),
- * kebab-case keys ({ "tool-start": {...} }), and Effect TaggedStruct ({ _tag: "tool_start", ... }).
+ * kebab-case keys ({ "tool-start": {...} }), PascalCase ({ "ToolStart": {...} }),
+ * and Effect TaggedStruct ({ _tag: "tool_start", ... }).
  *
  * @param {string} rawData
  * @returns {Array<{ tag: string, payload: any }>}
@@ -270,6 +291,14 @@ export function parseStreamEvents(rawData) {
     const events = [];
 
     for (const item of items) {
+      if (typeof item === "string") {
+        const lower = item.toLowerCase().trim();
+        if (lower === "done" || lower === '"done"') {
+          events.push({ tag: "done", payload: { content: "" } });
+        }
+        continue;
+      }
+
       if (!item || typeof item !== "object") continue;
 
       let tag = item._tag;
@@ -279,9 +308,17 @@ export function parseStreamEvents(rawData) {
         const keys = Object.keys(item);
         if (keys.length === 1) {
           const key = keys[0];
-          tag = key.replace(/-/g, "_");
+          tag = key
+            .replace(/([a-z])([A-Z])/g, "$1_$2")
+            .replace(/-/g, "_")
+            .toLowerCase();
           payload = item[key] || {};
         }
+      } else {
+        tag = String(tag)
+          .replace(/([a-z])([A-Z])/g, "$1_$2")
+          .replace(/-/g, "_")
+          .toLowerCase();
       }
 
       if (tag) {
@@ -297,31 +334,47 @@ export function parseStreamEvents(rawData) {
 }
 
 /**
+ * Extracts a normalized tool name from a tool call object.
+ * @param {any} toolCall
+ * @returns {string}
+ */
+export function getToolName(toolCall) {
+  return toolCall?.toolName || toolCall?.tool_name || "tool";
+}
+
+/**
  * Creates a running tool card element with a spinner.
- * @param {{ id?: string, toolName?: string }} toolCall
- * @returns {HTMLDivElement}
+ * @param {any} toolCall
+ * @returns {any}
  */
 export function createRunningToolCard(toolCall) {
-  const card = document.createElement("div");
+  const card =
+    typeof document !== "undefined"
+      ? document.createElement("div")
+      : { className: "", innerHTML: "" };
   card.className = "tool-card running";
   card.innerHTML = `
     <span class="tool-spinner"></span>
-    <span>Executing <strong>${escapeHtml(toolCall?.toolName || "tool")}</strong>...</span>
+    <span>Executing <strong>${escapeHtml(getToolName(toolCall))}</strong>...</span>
   `;
   return card;
 }
 
 /**
  * Updates a running tool card element to completed or failed state.
- * @param {HTMLElement} card
- * @param {{ toolName?: string, result?: any }} toolCall
+ * @param {any} card
+ * @param {any} toolCall
  */
 export function updateCompletedToolCard(card, toolCall) {
   let summary = "Completed";
   try {
     const resObj =
       typeof toolCall.result === "string" ? JSON.parse(toolCall.result) : toolCall.result;
-    summary = resObj?.summary || (resObj?.error ? `Failed: ${resObj.error}` : "Done");
+    if (Array.isArray(resObj)) {
+      summary = `${resObj.length} item${resObj.length === 1 ? "" : "s"}`;
+    } else {
+      summary = resObj?.summary || (resObj?.error ? `Failed: ${resObj.error}` : "Done");
+    }
   } catch {
     summary = toolCall?.result ? String(toolCall.result) : "Done";
   }
@@ -329,21 +382,40 @@ export function updateCompletedToolCard(card, toolCall) {
   card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
   card.innerHTML = `
     <span>${isFailed ? "⚠️" : "✅"}</span>
-    <span><strong>${escapeHtml(toolCall?.toolName || "tool")}:</strong> ${escapeHtml(summary)}</span>
+    <span><strong>${escapeHtml(getToolName(toolCall))}</strong>${summary ? ` <span class="tool-summary-divider">•</span> ${escapeHtml(summary)}` : ""}</span>
   `;
 }
 
 /**
  * Creates a static completed tool card (for historical messages or sync fallback).
- * @param {{ toolName?: string }} toolCall
- * @returns {HTMLDivElement}
+ * @param {any} toolCall
+ * @returns {any}
  */
 export function createCompletedToolCard(toolCall) {
-  const card = document.createElement("div");
-  card.className = "tool-card completed";
+  const card =
+    typeof document !== "undefined"
+      ? document.createElement("div")
+      : { className: "", innerHTML: "" };
+  let summary = "";
+  if (toolCall?.result) {
+    try {
+      const resObj =
+        typeof toolCall.result === "string" ? JSON.parse(toolCall.result) : toolCall.result;
+      if (Array.isArray(resObj)) {
+        summary = `${resObj.length} item${resObj.length === 1 ? "" : "s"}`;
+      } else {
+        summary = resObj?.summary || (resObj?.error ? `Failed: ${resObj.error}` : "");
+      }
+    } catch {
+      summary = "";
+    }
+  }
+  const isFailed =
+    summary.toLowerCase().includes("failed") || summary.toLowerCase().includes("error");
+  card.className = `tool-card ${isFailed ? "failed" : "completed"}`;
   card.innerHTML = `
-    <span>✅</span>
-    <span><strong>${escapeHtml(toolCall?.toolName || "tool")}</strong></span>
+    <span>${isFailed ? "⚠️" : "✅"}</span>
+    <span><strong>${escapeHtml(getToolName(toolCall))}</strong>${summary ? ` <span class="tool-summary-divider">•</span> ${escapeHtml(summary)}` : ""}</span>
   `;
   return card;
 }

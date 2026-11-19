@@ -295,7 +295,7 @@ async function sendMessage(message) {
             receivedAnyText = true;
             bubble.appendText(payload.delta || payload.content || "");
           } else if (tag === "tool_start") {
-            const tc = payload.toolCall;
+            const tc = payload.toolCall || payload.tool_call;
             if (tc) {
               const card = createRunningToolCard(tc);
               bubble.toolCardsContainer.appendChild(card);
@@ -304,7 +304,7 @@ async function sendMessage(message) {
               scrollToBottom();
             }
           } else if (tag === "tool_result") {
-            const tc = payload.toolCall;
+            const tc = payload.toolCall || payload.tool_call;
             if (tc && bubble.toolCards.has(tc.id)) {
               const card = bubble.toolCards.get(tc.id);
               updateCompletedToolCard(card, tc);
@@ -317,7 +317,12 @@ async function sendMessage(message) {
           } else if (tag === "error") {
             es.close();
             currentEventSource = null;
-            reject(new Error(payload.error || payload.content || "Stream returned error"));
+            const errMsg =
+              payload.content || payload.error || "An error occurred with the AI assistant.";
+            bubble.setText(errMsg);
+            bubble.row.classList.add("error");
+            bubble.showRetry();
+            resolve(undefined);
           }
         }
       };
@@ -368,9 +373,14 @@ async function sendMessage(message) {
       const syncData = await syncRes.json();
       bubble.setText(syncData.reply || "");
 
-      // Render tool calls if present
-      if (Array.isArray(syncData.toolCalls)) {
-        for (const tc of syncData.toolCalls) {
+      // Render tool calls if present (handle both toolCalls and tool_calls_used / toolCallsUsed)
+      const toolCalls =
+        syncData.toolCalls ||
+        syncData.tool_calls ||
+        syncData.toolCallsUsed ||
+        syncData.tool_calls_used;
+      if (Array.isArray(toolCalls)) {
+        for (const tc of toolCalls) {
           bubble.toolCardsContainer.appendChild(createCompletedToolCard(tc));
         }
         bubble.updateToolCount();
@@ -413,16 +423,23 @@ async function loadHistory() {
 
     let lastPrompt = "";
     for (const msg of history) {
-      if (msg.role === "user") {
+      const role = String(msg.role || "").toLowerCase();
+      if (role === "user") {
         lastPrompt = msg.content;
         appendUserMessage(msg.content, msg.timestamp);
-      } else if (msg.role === "assistant") {
+      } else if (role === "assistant") {
         const bubble = createAssistantBubble(lastPrompt, msg.timestamp);
         bubble.setText(msg.content || "");
         if (bubble.cursor) bubble.cursor.remove();
+        if (msg.type === "error") {
+          bubble.row.classList.add("error");
+          bubble.showRetry();
+        }
 
-        if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
-          for (const tc of msg.toolCalls) {
+        const toolCalls =
+          msg.toolCalls || msg.tool_calls || msg.tool_calls_used || msg.toolCallsUsed;
+        if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+          for (const tc of toolCalls) {
             bubble.toolCardsContainer.appendChild(createCompletedToolCard(tc));
           }
           bubble.updateToolCount();

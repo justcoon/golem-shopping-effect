@@ -1,10 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  extractHttpStatus,
   extractLlmErrorMessage,
   fixMojibake,
   formatLlmErrorMessage,
   formatUnknownError,
+  mapHttpErrorToUserMessage,
+  mapLlmErrorToUserMessage,
 } from "../src/ai/error-formatter.js";
 
 describe("LLM Error Formatting", () => {
@@ -115,5 +118,65 @@ describe("LLM Error Formatting", () => {
     );
     assert.strictEqual(formatUnknownError({ arbitrary: 123 }), '{"arbitrary":123}');
     assert.strictEqual(formatUnknownError("plain string error"), "plain string error");
+  });
+
+  it("extracts HTTP status codes accurately from diverse error payloads", () => {
+    assert.strictEqual(extractHttpStatus("503 Service Unavailable"), 503);
+    assert.strictEqual(extractHttpStatus("HTTP 429: Too Many Requests"), 429);
+    assert.strictEqual(
+      extractHttpStatus('{"error":{"code":401,"message":"API key not valid"}}'),
+      401,
+    );
+    assert.strictEqual(extractHttpStatus('[{"error":{"code":503,"status":"UNAVAILABLE"}}]'), 503);
+    assert.strictEqual(extractHttpStatus("unknown network error", 502), 502);
+  });
+
+  it("maps HTTP error statuses to polite, user-facing error messages", () => {
+    assert.strictEqual(
+      mapHttpErrorToUserMessage(503),
+      "The AI assistant is currently experiencing high demand. Please try again in a few moments.",
+    );
+    assert.strictEqual(
+      mapHttpErrorToUserMessage(429),
+      "The AI assistant is temporarily busy due to rate limits. Please try again shortly.",
+    );
+    assert.strictEqual(
+      mapHttpErrorToUserMessage(401),
+      "AI authentication failed. Please check your API key configuration.",
+    );
+    assert.strictEqual(
+      mapHttpErrorToUserMessage(403),
+      "AI authentication failed. Please check your API key configuration.",
+    );
+    assert.strictEqual(
+      mapHttpErrorToUserMessage(500),
+      "The AI assistant is temporarily unavailable. Please try again later.",
+    );
+  });
+
+  it("maps raw technical LLM error strings to clean user-facing messages", () => {
+    const raw503 =
+      '[{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}]';
+    assert.strictEqual(
+      mapLlmErrorToUserMessage(raw503),
+      "The AI assistant is currently experiencing high demand. Please try again in a few moments.",
+    );
+
+    const raw429 = '429 {"error":{"message":"Rate limit exceeded"}}';
+    assert.strictEqual(
+      mapLlmErrorToUserMessage(raw429),
+      "The AI assistant is temporarily busy due to rate limits. Please try again shortly.",
+    );
+
+    const raw401 = '{"error":{"message":"API key not valid. Please pass a valid API key."}}';
+    assert.strictEqual(
+      mapLlmErrorToUserMessage(raw401),
+      "AI authentication failed. Please check your API key configuration.",
+    );
+
+    assert.strictEqual(
+      mapLlmErrorToUserMessage("socket hang up"),
+      "The AI assistant is temporarily unavailable. Please try again later.",
+    );
   });
 });
