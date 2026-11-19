@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 // @ts-expect-error chat-common.js is a plain browser JS module without emitted .d.ts
-import { parseStreamEvents } from "../web/assets/chat-common.js";
+import * as chatCommon from "../web/assets/chat-common.js";
+
+const { parseStreamEvents, getToolName, createCompletedToolCard, updateCompletedToolCard } =
+  chatCommon;
 
 test("parseStreamEvents normalizes Golem WIT variant array batches", () => {
   const sseData = JSON.stringify([
@@ -69,4 +72,47 @@ test("parseStreamEvents handles empty or malformed input safely", () => {
   assert.deepEqual(parseStreamEvents(""), []);
   assert.deepEqual(parseStreamEvents("invalid-json"), []);
   assert.deepEqual(parseStreamEvents(null as unknown as string), []);
+});
+
+test("parseStreamEvents normalizes PascalCase variant keys and string chunks", () => {
+  const pascalData = JSON.stringify([
+    { TextDelta: { content: "Found products" } },
+    { ToolStart: { tool_call: { tool_name: "search_products" } } },
+    { Done: { content: "" } },
+  ]);
+  const events = parseStreamEvents(pascalData);
+  assert.equal(events.length, 3);
+  assert.equal(events[0]?.tag, "text_delta");
+  assert.equal(events[1]?.tag, "tool_start");
+  assert.equal(events[2]?.tag, "done");
+
+  const strDone = parseStreamEvents(JSON.stringify("done"));
+  assert.equal(strDone.length, 1);
+  assert.equal(strDone[0]?.tag, "done");
+});
+
+test("getToolName normalizes tool names from camelCase or snake_case", () => {
+  assert.equal(getToolName({ toolName: "search_products" }), "search_products");
+  assert.equal(getToolName({ tool_name: "add_to_cart" }), "add_to_cart");
+  assert.equal(getToolName({}), "tool");
+  assert.equal(getToolName(null), "tool");
+});
+
+test("tool cards format with bullet divider and array count", () => {
+  const card1 = createCompletedToolCard({
+    toolName: "search_products",
+    result: JSON.stringify([{ id: "p1" }, { id: "p2" }]),
+  });
+  assert.ok(card1.innerHTML.includes("search_products"));
+  assert.ok(card1.innerHTML.includes("tool-summary-divider"));
+  assert.ok(card1.innerHTML.includes("2 items"));
+
+  const dummyCard = { className: "", innerHTML: "" };
+  updateCompletedToolCard(dummyCard, {
+    tool_name: "checkout",
+    result: '{"summary":"Order #123 placed"}',
+  });
+  assert.ok(dummyCard.innerHTML.includes("checkout"));
+  assert.ok(dummyCard.innerHTML.includes("tool-summary-divider"));
+  assert.ok(dummyCard.innerHTML.includes("Order #123 placed"));
 });

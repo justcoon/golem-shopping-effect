@@ -173,6 +173,13 @@ export const useAssistantStore = defineStore("assistant", () => {
             type: streamHadError ? "error" : "ok",
           };
           messages.value.push(assistantMessage);
+        } else if (streamHadError && error.value?.message) {
+          messages.value.push({
+            role: "assistant",
+            content: error.value.message,
+            timestamp: new Date().toISOString(),
+            type: "error",
+          });
         } else {
           // Fallback to fetchHistory if stream delivered directly to backend
           await fetchHistory();

@@ -1,4 +1,111 @@
 /**
+ * Extracts an HTTP status code candidate from an error string, response text, or JSON payload.
+ */
+export function extractHttpStatus(text: string, defaultStatus = 500): number {
+  if (!text) return defaultStatus;
+  const trimmed = text.trim();
+
+  // 1. Direct status prefix: e.g. "503 [...]" or "HTTP 503: [...]"
+  const prefixMatch = trimmed.match(/^(?:HTTP\s*)?(\d{3})\b/i);
+  if (prefixMatch && prefixMatch[1]) {
+    const code = Number(prefixMatch[1]);
+    if (code >= 400 && code < 600) return code;
+  }
+
+  // 2. Try JSON inspection for error.code or status code
+  try {
+    const jsonCandidate = trimmed.replace(/^(HTTP\s*)?\d+\s*:?\s*/i, "").trim();
+    const parsed: unknown = JSON.parse(jsonCandidate || trimmed);
+    const item: unknown = Array.isArray(parsed) && parsed.length > 0 ? parsed[0] : parsed;
+    if (item && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      const errObj = (record.error as Record<string, unknown>) ?? record;
+      if (typeof errObj.code === "number" && errObj.code >= 400 && errObj.code < 600) {
+        return errObj.code;
+      }
+      if (typeof errObj.status === "number" && errObj.status >= 400 && errObj.status < 600) {
+        return errObj.status;
+      }
+      if (errObj.status === "UNAVAILABLE") return 503;
+      if (errObj.status === "RESOURCE_EXHAUSTED") return 429;
+      if (errObj.status === "UNAUTHENTICATED" || errObj.status === "PERMISSION_DENIED") return 401;
+    }
+  } catch {
+    // Non-JSON string
+  }
+
+  // 3. Fallback pattern matching for common HTTP codes
+  const anyCodeMatch = trimmed.match(/\b(401|403|429|503|500|502|504)\b/);
+  if (anyCodeMatch && anyCodeMatch[1]) {
+    return Number(anyCodeMatch[1]);
+  }
+
+  return defaultStatus;
+}
+
+/**
+ * Maps an HTTP status code and optional details to a user-friendly, empathetic message.
+ */
+export function mapHttpErrorToUserMessage(status: number, _rawDetail?: string): string {
+  switch (status) {
+    case 401:
+    case 403:
+      return "AI authentication failed. Please check your API key configuration.";
+    case 429:
+      return "The AI assistant is temporarily busy due to rate limits. Please try again shortly.";
+    case 503:
+      return "The AI assistant is currently experiencing high demand. Please try again in a few moments.";
+    default:
+      return "The AI assistant is temporarily unavailable. Please try again later.";
+  }
+}
+
+/**
+ * Maps raw error output from an LLM service or agent failure to a clean, user-friendly message.
+ */
+export function mapLlmErrorToUserMessage(raw: string): string {
+  if (!raw) {
+    return "The AI assistant is temporarily unavailable. Please try again later.";
+  }
+
+  const lower = raw.toLowerCase();
+
+  // Explicit keyword detection
+  if (
+    lower.includes("high demand") ||
+    lower.includes("503") ||
+    lower.includes("service unavailable") ||
+    lower.includes("unavailable")
+  ) {
+    return mapHttpErrorToUserMessage(503);
+  }
+
+  if (
+    lower.includes("rate limit") ||
+    lower.includes("quota") ||
+    lower.includes("429") ||
+    lower.includes("too many requests") ||
+    lower.includes("resource_exhausted")
+  ) {
+    return mapHttpErrorToUserMessage(429);
+  }
+
+  if (
+    lower.includes("api key") ||
+    lower.includes("authentication") ||
+    lower.includes("unauthenticated") ||
+    lower.includes("unauthorized") ||
+    lower.includes("401") ||
+    lower.includes("403")
+  ) {
+    return mapHttpErrorToUserMessage(401);
+  }
+
+  const status = extractHttpStatus(raw, 500);
+  return mapHttpErrorToUserMessage(status, raw);
+}
+
+/**
  * Extracts a clean, human-readable error message from an LLM API error response.
  * Handles JSON errors (including Gemini arrays `[{ error: ... }]` and standard `{ error: ... }`)
  * or falls back to plain text/status code.
